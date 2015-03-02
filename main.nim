@@ -1,6 +1,8 @@
 import asyncdispatch, asyncnet
 import httpclient
 import json
+import math
+import strutils
 
 type
     color = tuple[red:int, green:int, blue:int]
@@ -22,9 +24,8 @@ template recurringJob(content, waitTime: int, url, actions: stmt) {.immediate.} 
 
 recurringJob(rawWeather, 10, FORECAST_IO):
     var weather = parseJson(rawWeather)
-    echo weather["currently"]
-
-recurringJob(test, 10, "http://google.com"):
-    echo test
+    var weatherString = weather["hourly"]["summary"].str & " Feels like " & $round(weather["currently"]["apparentTemperature"].fnum) & "C"
+    weatherString = weatherString.replace("–", by="-")
+    echo weatherString
 
 runForever()
