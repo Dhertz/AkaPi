@@ -33,7 +33,7 @@ template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {
         quit("cannot open: " & fn)
 
 proc loadAkaPiLogo(): PSurface =
-    withFile(AkaPiLogo, "/home/dhertz/AkaPi_logo.ppm", fmRead):
+    withFile(AkaPiLogo, "AkaPi_logo.ppm", fmRead):
         if AkaPiLogo.readLine != "P6":
             raise newException(E_base, "Invalid file format")
 
@@ -64,7 +64,7 @@ proc loadAkaPiLogo(): PSurface =
 proc makePpmFromString(displayString, filename) =
     let
         color = if isPurpleDayz(): PURPLE else: RED
-        font = newFont(name = "/home/dhertz/Downloads/MBTA.ttf", size = 16, color = color)
+        font = newFont(name = "MBTA.ttf", size = 16, color = color)
 
     var
         (textWidth, textHeight) = textBounds(displayString, font)
@@ -105,6 +105,23 @@ recurringJob(rawWeather, weatherString, "sign_weather.ppm", 600, FORECAST_IO):
     let weather = parseJson(rawWeather)
     weatherString = weather["hourly"]["summary"].str & " Feels like " & $round(weather["currently"]["apparentTemperature"].fnum) & "C"
     weatherString = weatherString.replace("–", by="-")
+    var 
+       now = getLocalTime(getTime())
+       bestHour = 0
+       bestPrecipProbability = 1.0
+
+    if now.hour < 14:
+        for hour in weather["hourly"]["data"]:
+            var hourTime = fromSeconds(hour["time"].num).getLocalTime().hour
+            if 11 < hourTime and hourtime < 14:
+                let bestHourCondition = try: hour["precipProbability"].fnum 
+                                        except: float(hour["precipProbability"].num)
+                if bestHourCondition <= bestPrecipProbability:
+                    bestHour = hourTime
+                    bestPrecipProbability = bestHourCondition
+
+        if not (bestHour == 14) or not (bestPrecipProbability == 0.0):
+            weatherString &= " Probably best to go to lunch around " & $bestHour 
     echo(weatherString)
 
 recurringJob(rawRealtime, first_in_direction, "sign_T.ppm", 60, MBTA_RED_LINE):
