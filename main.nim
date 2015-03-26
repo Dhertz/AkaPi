@@ -50,15 +50,15 @@ proc loadAkaPiLogo(): PSurface =
             (x, y) = (parseInt parts[0], parseInt parts[1])
             result = newSurface(x, y)
             arr: array[256, int8]
-            read = AkaPiLogo.readBytes(arr, 0, 256)
+            read = AkaPiLogo.readBytes(arr, 0, 255)
             pos = 0
 
         while read != 0:
-            var pixelPos = pos div 3
-            result[pixelPos mod x, pixelPos mod y]=rgb(arr[pos].uint8, arr[pos+1].uint8, arr[pos+2].uint8)
-            pos += 3
+            for i in countup(0, read - 3, 3):
+                result[pos mod x, (pos div x) mod y]=rgb(arr[i].uint8, arr[i+1].uint8, arr[i+2].uint8)
+                inc pos
 
-            read = AkaPiLogo.readBytes(arr, 0, 256)
+            read = AkaPiLogo.readBytes(arr, 0, 255)
         return result
 
 proc makePpmFromString(displayString, filename) =
@@ -70,7 +70,7 @@ proc makePpmFromString(displayString, filename) =
         (textWidth, textHeight) = textBounds(displayString, font)
         surface = newSurface(AKAPI_LOGO.w + textWidth + 15, 18)
 
-    surface.blit((0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w + 5 + textWidth, AKAPI_LOGO.h))
+    surface.blit((10 + textWidth, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h))
     surface.drawText((5,1), displayString, font)
     withfile(f, filename, fmWrite):
         surface.writePPM(f)
@@ -113,9 +113,12 @@ recurringJob(rawRealtime, first_in_direction, "sign_T.ppm", 60, MBTA_RED_LINE):
     for mode in realtime["mode"]:
         if mode["mode_name"].str == "Subway":
             realtimeSubway = mode
-            break
+
+    if realtimeSubway == nil:
+        raise newException(IOError, "MBTA JSON is not as we expected")
 
     var seen_headsigns = initOrderedTable[string, seq[int]]()
+    echo realtimeSubway
     for route in realtimeSubway["route"]:
         for direction in route["direction"]:
             for trip in direction["trip"]:
@@ -130,7 +133,7 @@ recurringJob(rawRealtime, first_in_direction, "sign_T.ppm", 60, MBTA_RED_LINE):
     for headsign in seen_headsigns.keys:
         var
             headsignMinutes: seq[string] = @[]
-            sortedTimes = seen_headsigns[headsign]
+            sortedTimes = seen_headsigns[headsign][0..min(2, len seen_headsigns[headsign])]
 
         sortedTimes.sort(system.cmp[int])
         for x in sortedTimes:
