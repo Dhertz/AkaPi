@@ -38,12 +38,12 @@ template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {
     defer: close(f)
     body
   else:
-    quit("cannot open: " & fn)
+    raise newException(IOError, "cannot open: " & fn)
 
 proc loadAkaPiLogo(): PSurface =
   withFile(AkaPiLogo, AKAPI_LOGO_FILE, fmRead):
     if AkaPiLogo.readLine != "P6":
-      raise newException(E_base, "Invalid file format")
+      raise newException(IOError, "Invalid file format")
 
     var line = ""
     while AkaPiLogo.readLine(line):
@@ -51,7 +51,7 @@ proc loadAkaPiLogo(): PSurface =
         break
 
     if AkaPiLogo.readLine != "255":
-      raise newException(E_base, "Invalid file format")
+      raise newException(IOError, "Invalid file format")
 
     var
       parts = line.split(" ")
@@ -160,7 +160,13 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
         else:
            seen_headsigns[trip["trip_headsign"].str] = seen_headsigns[trip["trip_headsign"].str] & secAway
 
+  var headsigns: seq[string] = @[]
   for headsign in seen_headsigns.keys:
+    headsigns.add(headsign)
+
+  headSigns.sort(system.cmp[string])
+
+  for headsign in headSigns:
     var
       headsignMinutes: seq[string] = @[]
       sortedTimes = seen_headsigns[headsign][0..min(1, len seen_headsigns[headsign])]
