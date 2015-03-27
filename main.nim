@@ -1,3 +1,7 @@
+# DHertz's raspberry-pi digital signage runner
+# TODO: String formatting. It is gross at the moment
+#       Array slices
+
 import algorithm
 import asyncdispatch
 import colors
@@ -12,12 +16,14 @@ import times
 proc loadAkaPiLogo(): PSurface
 
 const
-  RED             = rgb(250,45,39)
-  PURPLE          = rgb(153,17,153)
-  FORECAST_IO     = "https://api.forecast.io/forecast/" & FORECAST_IO_KEY & "/42.364452,-71.089179?units=si"
-  MBTA_RED_LINE   = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?api_key=" & MBTA_KEY & "&stop=place-knncl&format=json"
-  AKAPI_LOGO_FILE = "AkaPi_logo.ppm"
-  FONT_FILE       = "MBTA.ttf"
+  RED              = rgb(250,45,39)
+  GREEN            = rgb(80, 250, 39)
+  PURPLE           = rgb(153,17,153)
+  FORECAST_IO      = "https://api.forecast.io/forecast/" & FORECAST_IO_KEY & "/42.364452,-71.089179?units=si"
+  MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?api_key=" & MBTA_KEY & "&stop=place-knncl&format=json"
+  YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
+  AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
+  FONT_FILE        = "MBTA.ttf"
 
 let AKAPI_LOGO:PSurface = loadAkaPiLogo()
 
@@ -63,10 +69,17 @@ proc loadAkaPiLogo(): PSurface =
       read = AkaPiLogo.readBytes(arr, 0, 255)
     return result
 
-proc makePpmFromString(displayString, filename) =
-  let
-    color = if isPurpleDayz(): PURPLE else: RED
-    font = newFont(name = FONT_FILE, size = 16, color = color)
+proc writePPM(surface: PSurface, f: File) =
+  f.writeln "P6\n", surface.w, " ", surface.h, "\n255"
+  for y in 0..surface.h-1:
+    for x in 0..surface.w-1:
+      var (r, g, b) = surface[(x, y)].extractRGB
+      f.write char(r)
+      f.write char(g)
+      f.write char(b)
+
+proc makePpmFromString(displayString: string, color: Color, filename: string) =
+  let font = newFont(name = FONT_FILE, size = 16, color = color)
 
   var
     (textWidth, textHeight) = textBounds(displayString, font)
@@ -77,36 +90,29 @@ proc makePpmFromString(displayString, filename) =
   withfile(f, filename, fmWrite):
     surface.writePPM(f)
 
-proc writePPM(surface: PSurface, f: File) =
-  f.writeln "P6\n", surface.w, " ", surface.h, "\n255"
-  for y in 0..surface.h-1:
-    for x in 0..surface.w-1:
-      var (r, g, b) = surface[(x, y)].extractRGB
-      f.write char(r)
-      f.write char(g)
-      f.write char(b)
-
-template recurringJob(content, displayString, filename, waitTime: int, url, actions: stmt) {.immediate.} =
-  var displayString = ""
+template recurringJob(content, displayString, color, filename, waitTime: int, url, actions: stmt) {.immediate.} =
+  var
+    displayString:string
+    color:Color
   block:
     proc asyncJob():Future[int] {.async.} =
       while true:
         let content = try: getContent(url)
-               except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
+                      except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
         try:
-           actions
-           makePpmFromString(displayString, filename)
+          actions
+          makePpmFromString(displayString, color, filename)
         except:
-           echo("Failed to create image:\n\t", getCurrentExceptionMsg())
+          echo("Failed to create image:\n\t", getCurrentExceptionMsg())
 
         await sleepAsync(waitTime*1000)
       return 1
     discard asyncJob()
 
-recurringJob(rawWeather, weatherString, "sign_weather.ppm", 600, FORECAST_IO):
+recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
   let weather = parseJson(rawWeather)
   weatherString = weather["hourly"]["summary"].str & " Feels like " & $round(weather["currently"]["apparentTemperature"].fnum) & "C"
-  weatherString = weatherString.replace("–", by="-")
+  weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
   var
      now = getLocalTime(getTime())
      bestHour = 0
@@ -117,18 +123,24 @@ recurringJob(rawWeather, weatherString, "sign_weather.ppm", 600, FORECAST_IO):
       var hourTime = fromSeconds(hour["time"].num).getLocalTime().hour
       if 11 < hourTime and hourtime < 14:
         let bestHourCondition = try: hour["precipProbability"].fnum
-                    except: float(hour["precipProbability"].num)
+                                except: float(hour["precipProbability"].num)
         if bestHourCondition <= bestPrecipProbability:
           bestHour = hourTime
           bestPrecipProbability = bestHourCondition
 
-    if not (bestHour == 14) or not (bestPrecipProbability == 0.0):
+    if not (bestHour == 14) or not (bestPrecipProbability == 0):
       weatherString &= " Probably best to go to lunch around " & $bestHour
-  echo(weatherString)
 
-recurringJob(rawRealtime, first_in_direction, "sign_T.ppm", 60, MBTA_RED_LINE):
+  weatherColor = if isPurpleDayz(): PURPLE else: RED
+
+  echo weatherString
+
+recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED_LINE):
   let realtime = parseJson(rawRealtime)
   var realtimeSubway: JsonNode
+
+  first_in_direction = ""
+
   for mode in realtime["mode"]:
     if mode["mode_name"].str == "Subway":
       realtimeSubway = mode
@@ -151,13 +163,32 @@ recurringJob(rawRealtime, first_in_direction, "sign_T.ppm", 60, MBTA_RED_LINE):
   for headsign in seen_headsigns.keys:
     var
       headsignMinutes: seq[string] = @[]
-      sortedTimes = seen_headsigns[headsign][0..min(2, len seen_headsigns[headsign])]
+      sortedTimes = seen_headsigns[headsign][0..min(1, len seen_headsigns[headsign])]
 
     sortedTimes.sort(system.cmp[int])
-    for x in sortedTimes:
-      headsignMinutes.add($round(x/60))
+    for x in sortedTimes :
+      headsignMinutes.add($round(x/60)) 
 
-    first_in_direction &= headsign & " " & join(headsignMinutes, "m, ") & "m $ "
-  echo(first_in_direction)
+    first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m $ "
+
+  TColor = if isPurpleDayz(): PURPLE else: RED
+
+  echo first_in_direction
+
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
+  let stock = parseJson(rawStock)
+  stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" & stock["query"]["results"]["quote"]["LastTradePriceOnly"].str
+
+  let stockChange = parseFloat stock["query"]["results"]["quote"]["Change"].str
+
+  if  stockChange <= 0:
+    stockColor = RED
+    stockString &= '%' & formatFloat(stockChange, precision = 2)
+  else:
+    stockColor = GREEN
+    stockString &= '&' & formatFloat(stockChange, precision = 2)
+
+  echo stockString
+
 
 runForever()
