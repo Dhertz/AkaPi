@@ -67,6 +67,7 @@ proc loadAkaPiLogo(): PSurface =
         inc pos
 
       read = AkaPiLogo.readBytes(arr, 0, 255)
+
     return result
 
 proc writePPM(surface: PSurface, f: File) =
@@ -80,28 +81,44 @@ proc writePPM(surface: PSurface, f: File) =
 
 proc makePpmFromString(displayString: string, color: Color, filename: string) =
   let font = newFont(name = FONT_FILE, size = 16, color = color)
-
   var
     (textWidth, textHeight) = textBounds(displayString, font)
     surface = newSurface(AKAPI_LOGO.w + textWidth + 15, 18)
 
   surface.blit((10 + textWidth, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h))
   surface.drawText((5,1), displayString, font)
+  echo("Saving ", filename)
   withfile(f, filename, fmWrite):
     surface.writePPM(f)
 
+proc whenToLeave(begin, finish: int, weather: JsonNode): auto =
+  var result: tuple[hour: string, chance: float] = ("", 1.0)
+  let today = getLocalTime(getTime()).monthday
+  for hour in weather["hourly"]["data"]:
+    var forcastTime = fromSeconds(hour["time"].num).getLocalTime()
+    if begin <= forcastTime.hour and forcastTime.hour <= finish and forcastTime.monthday == today:
+      let bestHourCondition = try: hour["precipProbability"].fnum
+                              except: float(hour["precipProbability"].num)
+      if bestHourCondition <= result.chance:
+        result = (forcastTime.format("htt"), bestHourCondition)
+  return result
+
 template recurringJob(content, displayString, color, filename, waitTime: int, url, actions: stmt) {.immediate.} =
-  var
-    displayString:string
-    color:Color
   block:
     proc asyncJob():Future[int] {.async.} =
+      var
+        displayString = ""
+        color:Color
+        oldString = ""
+
       while true:
         let content = try: getContent(url)
                       except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
         try:
           actions
-          makePpmFromString(displayString, color, filename)
+          if displayString != oldString:
+            oldString = displayString
+            makePpmFromString(displayString, color, filename)
         except:
           echo("Failed to create image:\n\t", getCurrentExceptionMsg())
 
@@ -114,22 +131,19 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
   weatherString = weather["hourly"]["summary"].str & " Feels like " & $round(weather["currently"]["apparentTemperature"].fnum) & "C"
   weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
   var
-     now = getLocalTime(getTime())
-     bestHour = 0
-     bestPrecipProbability = 1.0
+    now = getLocalTime(getTime())
+    bestHour: tuple[hour: string, chance: float]
 
   if now.hour < 14:
-    for hour in weather["hourly"]["data"]:
-      var hourTime = fromSeconds(hour["time"].num).getLocalTime().hour
-      if 11 < hourTime and hourtime < 14:
-        let bestHourCondition = try: hour["precipProbability"].fnum
-                                except: float(hour["precipProbability"].num)
-        if bestHourCondition <= bestPrecipProbability:
-          bestHour = hourTime
-          bestPrecipProbability = bestHourCondition
-
-    if not (bestHour == 14) or not (bestPrecipProbability == 0):
-      weatherString &= " Probably best to go to lunch around " & $bestHour
+    bestHour = whenToLeave(11, 14, weather)
+    if not (bestHour.hour == "2pm") or not (bestHour.chance == 0):
+      let timeStr = if now.format("htt") == bestHour.hour: "now" else: bestHour.hour
+      weatherString &= ". Probably best to go to lunch around " & timeStr
+  elif now.hour < 19:
+    bestHour = whenToLeave(16, 19, weather)
+    if not (bestHour.hour == "7pm") or not (bestHour.chance == 0):
+      let timeStr = if now.format("htt") == bestHour.hour: "now" else: bestHour.hour
+      weatherString &= ". Probably best to go home around " & timeStr
 
   weatherColor = if isPurpleDayz(): PURPLE else: RED
 
@@ -173,7 +187,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
     sortedTimes.sort(system.cmp[int])
     for x in sortedTimes :
-      headsignMinutes.add($round(x/60)) 
+      headsignMinutes.add($round(x/60))
 
     first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m $ "
 
