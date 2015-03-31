@@ -5,23 +5,30 @@
 import algorithm
 import asyncdispatch
 import colors
+import future
 import graphics
 import httpclient
 import json
 import math
+import os
+import streams
 import strutils
 import tables
 import times
+import xmlparser
+import xmltree
 
 proc loadAkaPiLogo(): PSurface
 
 const
-  RED              = rgb(250,45,39)
-  GREEN            = rgb(80, 250, 39)
-  PURPLE           = rgb(153,17,153)
+  RED              = rgb(250, 45,  39)
+  GREEN            = rgb(80,  250, 39)
+  BLUE             = rgb(40,  90,  229)
+  PURPLE           = rgb(153, 17,  153)
   FORECAST_IO      = "https://api.forecast.io/forecast/" & FORECAST_IO_KEY & "/42.364452,-71.089179?units=si"
   MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?api_key=" & MBTA_KEY & "&stop=place-knncl&format=json"
   YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
+  EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
 
@@ -118,6 +125,8 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
           actions
           if displayString != oldString:
             oldString = displayString
+            if displayString == "":
+              removeFile(filename)
             makePpmFromString(displayString, color, filename)
         except:
           echo("Failed to create image:\n\t", getCurrentExceptionMsg())
@@ -136,12 +145,12 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
 
   if now.hour < 14:
     bestHour = whenToLeave(11, 14, weather)
-    if not (bestHour.hour == "2pm") or not (bestHour.chance == 0):
+    if not (bestHour.hour == "2PM") or not (bestHour.chance == 0):
       let timeStr = if now.format("htt") == bestHour.hour: "now" else: bestHour.hour
       weatherString &= ". Probably best to go to lunch around " & timeStr
   elif now.hour < 19:
     bestHour = whenToLeave(16, 19, weather)
-    if not (bestHour.hour == "7pm") or not (bestHour.chance == 0):
+    if not (bestHour.hour == "7PM") or not (bestHour.chance == 0):
       let timeStr = if now.format("htt") == bestHour.hour: "now" else: bestHour.hour
       weatherString &= ". Probably best to go home around " & timeStr
 
@@ -195,7 +204,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 60, YAHOO_AKAM_STOCK):
   let stock = parseJson(rawStock)
   stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" & stock["query"]["results"]["quote"]["LastTradePriceOnly"].str
 
@@ -210,5 +219,22 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM
 
   echo stockString
 
+recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
+  let ezStream = newStringStream first_in_direction
+  ezString = ""
+  for direction in ezStream.parseXml.findAll "direction":
+    var sortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
+    if sortedTimes.len == 0: continue
+    sortedTimes.sort(system.cmp[int])
+
+    var strSortedTimes = lc[$x | (x <- sortedTimes), string]
+
+    ezString &= direction.attr("title") & ":" & join(strSortedTimes[0..min(1, strSortedTimes.len)], "m, ") & "m "
+
+  if ezString != "":
+    ezString = "EZBus - " & ezString
+    echo ezString
+
+  ezColor = if isPurpleDayz(): PURPLE else: BLUE
 
 runForever()
