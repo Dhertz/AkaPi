@@ -1,6 +1,7 @@
 # DHertz's raspberry-pi digital signage runner
 # TODO: String formatting. It is gross at the moment
 #       Array slices
+#       Make sure T returns empty string when no trains available
 
 import algorithm
 import asyncdispatch
@@ -36,7 +37,7 @@ let AKAPI_LOGO:PSurface = loadAkaPiLogo()
 
 proc isPurpleDayz():bool =
   var now = getLocalTime(getTime())
-  return (now.weekday == dWed and 3 < now.monthday and now.monthday < 11) or (now.weekday == dFri and (now.monthday < 6 or now.monthday > 12))
+  (now.weekday == dWed and 3 < now.monthday and now.monthday < 11) or (now.weekday == dFri and (now.monthday < 6 or now.monthday > 12))
 
 template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {.immediate.} =
   let fn = filename
@@ -63,19 +64,17 @@ proc loadAkaPiLogo(): PSurface =
     var
       parts = line.split(" ")
       (x, y) = (parseInt parts[0], parseInt parts[1])
-      result = newSurface(x, y)
       arr: array[256, int8]
       read = AkaPiLogo.readBytes(arr, 0, 255)
       pos = 0
 
+    result = newSurface(x, y)
     while read != 0:
       for i in countup(0, read - 3, 3):
         result[pos mod x, (pos div x) mod y]=rgb(arr[i].uint8, arr[i+1].uint8, arr[i+2].uint8)
         inc pos
 
       read = AkaPiLogo.readBytes(arr, 0, 255)
-
-    return result
 
 proc writePPM(surface: PSurface, f: File) =
   f.writeln "P6\n", surface.w, " ", surface.h, "\n255"
@@ -98,8 +97,8 @@ proc makePpmFromString(displayString: string, color: Color, filename: string) =
   withfile(f, filename, fmWrite):
     surface.writePPM(f)
 
-proc whenToLeave(begin, finish: int, weather: JsonNode): auto =
-  var result: tuple[hour: string, chance: float] = ("", 1.0)
+proc whenToLeave(begin, finish: int, weather: JsonNode): tuple[hour: string, chance: float] =
+  result = ("", 1.0)
   let today = getLocalTime(getTime()).monthday
   for hour in weather["hourly"]["data"]:
     var forcastTime = fromSeconds(hour["time"].num).getLocalTime()
@@ -108,7 +107,6 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): auto =
                               except: float(hour["precipProbability"].num)
       if bestHourCondition <= result.chance:
         result = (forcastTime.format("htt"), bestHourCondition)
-  return result
 
 template recurringJob(content, displayString, color, filename, waitTime: int, url, actions: stmt) {.immediate.} =
   block:
@@ -208,7 +206,11 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 60, YAHOO_AKAM
   let stock = parseJson(rawStock)
   stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" & stock["query"]["results"]["quote"]["LastTradePriceOnly"].str
 
-  let stockChange = parseFloat stock["query"]["results"]["quote"]["Change"].str
+  var stockChange = try: stock["query"]["results"]["quote"]["Change"].fnum
+                    except: 0.0
+
+  #Null handling. fnum(JsonNode) returns min float (6.9e-310) on some errors!
+  if 0.0001 > stockChange and stockChange > 0.0: stockChange = 0
 
   if  stockChange <= 0:
     stockColor = RED
