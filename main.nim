@@ -138,12 +138,16 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
     discard asyncJob()
 
 recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
-  let weather = parseJson(rawWeather)
-  weatherString = weather["hourly"]["summary"].str & " Feels like " & $round(weather["currently"]["apparentTemperature"].fnum) & "C"
+  let
+    weather = parseJson(rawWeather)
+    feelsLike = try: round(weather["currently"]["apparentTemperature"].fnum)
+                except: int weather["currently"]["apparentTemperature"].num 
+
+  weatherString = weather["hourly"]["summary"].str & " Feels like " & $feelsLike & "C"
   weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
-  var
-    now = getLocalTime(getTime())
-    bestHour: tuple[hour: string, chance: float]
+
+  let now = getLocalTime(getTime())
+  var bestHour: tuple[hour: string, chance: float]
 
   if now.hour < 14:
     bestHour = whenToLeave(11, 14, weather)
