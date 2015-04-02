@@ -36,8 +36,11 @@ const
 let AKAPI_LOGO:PSurface = loadAkaPiLogo()
 
 proc isPurpleDayz():bool =
-  var now = getLocalTime(getTime())
-  (now.weekday == dWed and 3 < now.monthday and now.monthday < 11) or (now.weekday == dFri and (now.monthday < 6 or now.monthday > 12))
+  let
+    now = getLocalTime(getTime())
+    isPurpleWed = now.weekday == dWed and 3 < now.monthday and now.monthday < 11
+    isPurpleFri = now.weekday == dFri and (now.monthday < 6 or now.monthday > 12)
+  isPurpleWed or isPurpleFri
 
 template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {.immediate.} =
   let fn = filename
@@ -86,8 +89,8 @@ proc writePPM(surface: PSurface, f: File) =
       f.write char(b)
 
 proc makePpmFromString(displayString: string, color: Color, filename: string) =
-  let font = newFont(name = FONT_FILE, size = 16, color = color)
-  var
+  let
+    font = newFont(name = FONT_FILE, size = 16, color = color)
     (textWidth, textHeight) = textBounds(displayString, font)
     surface = newSurface(AKAPI_LOGO.w + textWidth + 15, 18)
 
@@ -125,9 +128,10 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
             oldString = displayString
             if displayString == "":
               removeFile(filename)
-            makePpmFromString(displayString, color, filename)
+            else:
+              makePpmFromString(displayString, color, filename)
         except:
-          echo("Failed to create image:\n\t", getCurrentExceptionMsg())
+          echo("Failed to create " & filename & ":\n\t", getCurrentExceptionMsg())
 
         await sleepAsync(waitTime*1000)
       return 1
@@ -181,20 +185,16 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
         else:
            seen_headsigns[trip["trip_headsign"].str] = seen_headsigns[trip["trip_headsign"].str] & secAway
 
-  var headsigns: seq[string] = @[]
-  for headsign in seen_headsigns.keys:
-    headsigns.add(headsign)
+  var headsigns = lc[x | (x <- seen_headsigns.keys), string]
 
-  headSigns.sort(system.cmp[string])
+  headsigns.sort(system.cmp[string])
 
-  for headsign in headSigns:
-    var
-      headsignMinutes: seq[string] = @[]
-      sortedTimes = seen_headsigns[headsign][0..min(1, len seen_headsigns[headsign])]
+  for headsign in headsigns:
+    var sortedTimes = seen_headsigns[headsign][0..min(1, len seen_headsigns[headsign])]
 
     sortedTimes.sort(system.cmp[int])
-    for x in sortedTimes :
-      headsignMinutes.add($round(x/60))
+
+    let headsignMinutes = lc[($round(x/60)) | (x <- sortedTimes), string]
 
     first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m $ "
 
@@ -204,17 +204,20 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
 recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 60, YAHOO_AKAM_STOCK):
   let stock = parseJson(rawStock)
-  stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" & stock["query"]["results"]["quote"]["LastTradePriceOnly"].str
+  stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 4)
 
-  var stockChange = try: stock["query"]["results"]["quote"]["Change"].fnum
+  var strChange:string = stock["query"]["results"]["quote"]["Change"].str
+  if strChange == nil: strChange = "0.0"
+
+  var stockChange = try: parseFloat strChange
                     except: 0.0
 
   #Null handling. fnum(JsonNode) returns min float (6.9e-310) on some errors!
   if 0.0001 > stockChange and stockChange > 0.0: stockChange = 0
 
-  if  stockChange <= 0:
+  if stockChange < 0:
     stockColor = RED
-    stockString &= '%' & formatFloat(stockChange, precision = 2)
+    stockString &= '%' & formatFloat(stockChange * -1, precision = 2)
   else:
     stockColor = GREEN
     stockString &= '&' & formatFloat(stockChange, precision = 2)
@@ -226,11 +229,11 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
   ezString = ""
   for direction in ezStream.parseXml.findAll "direction":
     var sortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
+
     if sortedTimes.len == 0: continue
     sortedTimes.sort(system.cmp[int])
 
     var strSortedTimes = lc[$x | (x <- sortedTimes), string]
-
     ezString &= direction.attr("title") & ":" & join(strSortedTimes[0..min(1, strSortedTimes.len)], "m, ") & "m "
 
   if ezString != "":
