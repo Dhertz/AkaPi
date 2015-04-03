@@ -100,16 +100,21 @@ proc makePpmFromString(displayString: string, color: Color, filename: string) =
   withfile(f, filename, fmWrite):
     surface.writePPM(f)
 
-proc whenToLeave(begin, finish: int, weather: JsonNode): tuple[hour: string, chance: float] =
-  result = ("", 1.0)
+proc whenToLeave(begin, finish: int, weather: JsonNode): string =
+  var
+    bestTime: tuple[time: TimeInfo, chance: float] = (getLocalTime(getTime()), 1.0)
+    forcastTime: TimeInfo
   let today = getLocalTime(getTime()).monthday
   for hour in weather["hourly"]["data"]:
-    var forcastTime = fromSeconds(hour["time"].num).getLocalTime()
+    forcastTime = fromSeconds(hour["time"].num).getLocalTime()
     if begin <= forcastTime.hour and forcastTime.hour <= finish and forcastTime.monthday == today:
       let bestHourCondition = try: hour["precipProbability"].fnum
                               except: float(hour["precipProbability"].num)
-      if bestHourCondition <= result.chance:
-        result = (forcastTime.format("htt"), bestHourCondition)
+      if bestHourCondition < bestTime.chance:
+        bestTime = (forcastTime, bestHourCondition)
+  if bestTime.time.hour != begin or bestTime.chance != 0.0:
+    let oneHour = initInterval(hours=1)
+    result = bestTime.time.format("htt") & " and " & (bestTime.time + oneHour).format("htt")
 
 template recurringJob(content, displayString, color, filename, waitTime: int, url, actions: stmt) {.immediate.} =
   block:
@@ -147,18 +152,15 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
   weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
 
   let now = getLocalTime(getTime())
-  var bestHour: tuple[hour: string, chance: float]
 
   if now.hour < 14:
-    bestHour = whenToLeave(11, 14, weather)
-    if not (bestHour.hour == "2PM") or not (bestHour.chance == 0):
-      let timeStr = if now.format("htt") == bestHour.hour: "now" else: bestHour.hour
-      weatherString &= ". Probably best to go to lunch around " & timeStr
+    var bestHour = whenToLeave(11, 14, weather)
+    if bestHour != nil:
+      weatherString &= ". Probably best to go to lunch between " & bestHour
   elif now.hour < 19:
-    bestHour = whenToLeave(16, 19, weather)
-    if not (bestHour.hour == "7PM") or not (bestHour.chance == 0):
-      let timeStr = if now.format("htt") == bestHour.hour: "now" else: bestHour.hour
-      weatherString &= ". Probably best to go home around " & timeStr
+    var bestHour = whenToLeave(16, 19, weather)
+    if bestHour != nil:
+      weatherString &= ". Probably best to go home between " & bestHour
 
   weatherColor = if isPurpleDayz(): PURPLE else: RED
 
