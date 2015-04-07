@@ -112,7 +112,7 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
                               except: float(hour["precipProbability"].num)
       if bestHourCondition < bestTime.chance:
         bestTime = (forcastTime, bestHourCondition)
-  if bestTime.time.hour != begin or bestTime.chance != 0.0:
+  if (bestTime.time.hour != begin or bestTime.chance != 0.0) and bestTime.chance != 1.0:
     let oneHour = initInterval(hours=1)
     result = bestTime.time.format("htt") & " and " & (bestTime.time + oneHour).format("htt")
 
@@ -196,7 +196,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
   headsigns.sort(system.cmp[string])
 
   for headsign in headsigns:
-    var sortedTimes = seen_headsigns[headsign][0..min(1, len seen_headsigns[headsign])]
+    var sortedTimes = seen_headsigns[headsign][0..min(1, len seen_headsigns[headsign]-1)]
 
     sortedTimes.sort(system.cmp[int])
 
@@ -240,10 +240,10 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
     sortedTimes.sort(system.cmp[int])
 
     var strSortedTimes = lc[$x | (x <- sortedTimes), string]
-    ezString &= direction.attr("title") & ":" & join(strSortedTimes[0..min(1, strSortedTimes.len)], "m, ") & "m "
+    ezString &= direction.attr("title") & ":" & join(strSortedTimes[0..min(1, strSortedTimes.len-1)], "m, ") & "m "
 
   if ezString != "":
-    ezString = "EZBus - " & ezString
+    ezString = "EZRide - " & ezString
     echo ezString
 
   ezColor = if isPurpleDayz(): PURPLE else: BLUE
