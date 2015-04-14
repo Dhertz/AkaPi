@@ -2,6 +2,9 @@
 # TODO: String formatting. It is gross at the moment
 #       Array slices
 #       Make sure T returns empty string when no trains available
+#       Use newer Json accessors with defaults
+
+include secrets
 
 import algorithm
 import asyncdispatch
@@ -146,7 +149,7 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
   let
     weather = parseJson(rawWeather)
     feelsLike = try: round(weather["currently"]["apparentTemperature"].fnum)
-                except: int weather["currently"]["apparentTemperature"].num 
+                except: int weather["currently"]["apparentTemperature"].num
 
   weatherString = weather["hourly"]["summary"].str & " Feels like " & $feelsLike & "C"
   weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
@@ -196,7 +199,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
   headsigns.sort(system.cmp[string])
 
   for headsign in headsigns:
-    var sortedTimes = seen_headsigns[headsign][0..min(1, len seen_headsigns[headsign]-1)]
+    var sortedTimes = seen_headsigns[headsign][0..min(1, len(seen_headsigns[headsign])-1)]
 
     sortedTimes.sort(system.cmp[int])
 
@@ -208,7 +211,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 60, YAHOO_AKAM_STOCK):
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 1, YAHOO_AKAM_STOCK):
   let stock = parseJson(rawStock)
   stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 4)
 
@@ -216,18 +219,18 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 60, YAHOO_AKAM
   if strChange == nil: strChange = "0.0"
 
   var stockChange = try: parseFloat strChange
-                    except: 0.0
+                  except: 0.0
 
   #Null handling. fnum(JsonNode) returns min float (6.9e-310) on some errors!
   if 0.0001 > stockChange and stockChange > 0.0: stockChange = 0
-
+  
   if stockChange < 0:
     stockColor = RED
     stockString &= '%' & formatFloat(stockChange * -1, precision = 2)
   else:
     stockColor = GREEN
     stockString &= '&' & formatFloat(stockChange, precision = 2)
-
+  
   echo stockString
 
 recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
