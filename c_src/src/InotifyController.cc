@@ -1,4 +1,4 @@
-#include "InotifyController.hpp"
+#include <InotifyController.hpp>
 #include <iostream>
 #include <stdexcept>
 #include <sys/inotify.h>

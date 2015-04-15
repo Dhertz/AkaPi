@@ -6,7 +6,7 @@
 #include <thread>
 #include <deque>
 #include <memory>
-#include "InotifyController.hpp"
+#include <InotifyController.hpp>
 #include <utility>
 #include <unordered_map>
 #include <sys/types.h>
@@ -15,7 +15,7 @@
 #include <dirent.h>
 #include <exception>
 #include <cstdlib>
-#include "Image.h"
+#include <Image.h>
 #define SCREENS 8
 using namespace rgb_matrix;
 
