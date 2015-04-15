@@ -223,14 +223,14 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 1, YAHOO_AKAM_
 
   #Null handling. fnum(JsonNode) returns min float (6.9e-310) on some errors!
   if 0.0001 > stockChange and stockChange > 0.0: stockChange = 0
-  
+
   if stockChange < 0:
     stockColor = RED
     stockString &= '%' & formatFloat(stockChange * -1, precision = 2)
   else:
     stockColor = GREEN
     stockString &= '&' & formatFloat(stockChange, precision = 2)
-  
+
   echo stockString
 
 recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
