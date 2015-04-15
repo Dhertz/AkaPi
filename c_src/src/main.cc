@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <list>
-#include "led-matrix.h"
+#include <led-matrix.h>
 #include <condition_variable>
 #include <thread>
 #include <deque>
