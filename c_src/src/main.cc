@@ -121,6 +121,7 @@ void fixImages(struct inotify_event* e) {
 	std::string file_name(e->name);
 	std::string ppm(".ppm");
 	if (!(file_name.find(ppm) == std::string::npos)) {
+			file_name = rel_path + file_name;
 			LinkedScrollingImage* loaded_ppm;
 			if (e->mask & (IN_CREATE | IN_CLOSE_WRITE) ){
 				if (imhash.find(file_name) == imhash.end()) { 
