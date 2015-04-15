@@ -1,0 +1,3 @@
+[submodule "c_src/rpi-rgb-led-matrix"]
+	path = c_src/rpi-rgb-led-matrix
+	url = https://github.com/hzeller/rpi-rgb-led-matrix
