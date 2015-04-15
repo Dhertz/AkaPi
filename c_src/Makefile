@@ -1,3 +1,4 @@
+CXX=g++
 CXXFLAGS=-Wall -O3 -std=gnu++0x
 OBJECTS="scan_dir.o InotifyController.o"
 RGB_DIR=rpi-rgb-led-matrix
@@ -7,6 +8,7 @@ RGB_LIBRARY_NAME=rgbmatrix
 RGB_LIBRARY=$(RGB_LIBDIR)/lib$(RGB_LIBRARY_NAME).a
 LDFLAGS+=-L$(RGB_LIBDIR) -l$(RGB_LIBRARY_NAME) -lrt -lm -lpthread
 
+all: scan_dir
 
 $(RGB_LIBRARY):
 	$(MAKE) -C $(RGB_LIBDIR)
