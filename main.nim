@@ -211,7 +211,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 1, YAHOO_AKAM_STOCK):
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
   let stock = parseJson(rawStock)
   stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 4)
 
