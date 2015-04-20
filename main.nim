@@ -213,23 +213,20 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
 recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
   let stock = parseJson(rawStock)
-  stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 4)
+  stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 2, format = ffDecimal)
 
   var strChange:string = stock["query"]["results"]["quote"]["Change"].str
   if strChange == nil: strChange = "0.0"
 
-  var stockChange = try: parseFloat strChange
-                  except: 0.0
-
-  #Null handling. fnum(JsonNode) returns min float (6.9e-310) on some errors!
-  if 0.0001 > stockChange and stockChange > 0.0: stockChange = 0
+  let stockChange = try: parseFloat strChange
+                    except: 0.0
 
   if stockChange < 0:
     stockColor = RED
-    stockString &= '%' & formatFloat(stockChange * -1, precision = 2)
+    stockString &= '%' & formatFloat(stockChange * -1, precision = 2, format = ffDecimal)
   else:
     stockColor = GREEN
-    stockString &= '&' & formatFloat(stockChange, precision = 2)
+    stockString &= '&' & formatFloat(stockChange, precision = 2, format = ffDecimal)
 
   echo stockString
 
