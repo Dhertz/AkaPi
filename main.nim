@@ -115,7 +115,7 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
                               except: float(hour["precipProbability"].num)
       if bestHourCondition < bestTime.chance:
         bestTime = (forcastTime, bestHourCondition)
-  if (bestTime.time.hour != begin or bestTime.chance != 0.0) and bestTime.chance != 1.0:
+  if (bestTime.time.hour != begin or bestTime.chance > 0.1) and bestTime.chance != 1.0:
     let oneHour = initInterval(hours=1)
     result = bestTime.time.format("htt") & " and " & (bestTime.time + oneHour).format("htt")
 
