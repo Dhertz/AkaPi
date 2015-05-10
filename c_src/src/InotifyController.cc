@@ -39,15 +39,15 @@ void InotifyController::RegisterCallback(std::string &path, std::function<void(s
 
 void InotifyController::WatchLoop(void) {
 	while (true) {
-			struct inotify_event* event = this->getEvent();
-			usleep(100);
+		struct inotify_event* event = this->getEvent();
+		usleep(100);
        	 	if ( event->mask & IN_MODIFY | IN_CREATE) {
-					std::string path = file_map[event->wd];
-					if (path.size() == 0) {
-						std::cerr << "No function registered for " << event->name << std::endl;
-					} else {
-						this->func_map[path](event);
-        			}
-				}
+			std::string path = file_map[event->wd];
+			if (path.size() == 0) {
+				std::cerr << "No function registered for " << event->name << std::endl;
+			} else {
+				this->func_map[path](event);
+        		}
 		}
+	}
 }
