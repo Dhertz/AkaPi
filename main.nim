@@ -34,6 +34,7 @@ const
   MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?api_key=" & MBTA_KEY & "&stop=place-knncl&format=json"
   YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
   EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
+  CRICK            = "http://cricscore-api.appspot.com/csa?id=743969"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
 
@@ -250,5 +251,13 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
     echo ezString
 
   ezColor = if isPurpleDaze(): PURPLE else: BLUE
+
+recurringJob(crick_score, crickString, crickColour, "sign_cricket.ppm", 60, CRICK):
+  let crick = parseJson(crick_score)
+  crickString = "Second Ashes Test:" & crick[0]["si"].str & " - " & crick[0]["de"].str.replace("(").replace(")")
+
+  echo crickString
+
+  crickColour = if isPurpleDaze(): PURPLE else: BLUE
 
 runForever()
