@@ -16,6 +16,7 @@ import httpclient
 import json
 import math
 import os
+import smtp
 import streams
 import strutils
 import tables
@@ -259,5 +260,17 @@ recurringJob(crick_score, crickString, crickColour, "sign_cricket.ppm", 60, CRIC
   echo crickString
 
   crickColour = if isPurpleDaze(): PURPLE else: BLUE
+
+proc emailPurpleDaze(): Future[void] {.async.} =
+  while true:
+    let now = getLocalTime(getTime())
+    if now.hour == 17 and isPurpleDaze(now + initInterval(days=1)):
+      let msg = createMessage("Purple Daze incoming!", "Remember to wear one of your finest purple garments tomorrow.", @[purpleEmail])
+      var serv = connect(SMTPServer)
+      echo ("\n" & $msg & "\n")
+      serv.sendmail(myEmail, @[purpleEmail], $msg)
+    await sleepAsync(3600*1000)
+
+discard emailPurpleDaze()
 
 runForever()
