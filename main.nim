@@ -1,5 +1,6 @@
 # DHertz's raspberry-pi digital signage runner
 # TODO: String formatting. It is gross at the moment
+#       There must be a way to stop these really long strings being on one line. Right guys? guys??
 #       Array slices
 #       Make sure T returns empty string when no trains available
 #       Use newer Json accessors with defaults
@@ -38,12 +39,13 @@ const
 
 let AKAPI_LOGO:PSurface = loadAkaPiLogo()
 
-proc isPurpleDayz():bool =
+proc isPurpleDaze(now = getLocalTime(getTime())):bool =
+#Thurs November 21 - "We don't know why, but we are scared if we change it it will break"
   let
-    now = getLocalTime(getTime())
     isPurpleWed = now.weekday == dWed and 3 < now.monthday and now.monthday < 11
+    isPurpleThu = now.weekday == dThu and 21 == now.monthday and mNov == now.month
     isPurpleFri = now.weekday == dFri and (now.monthday < 6 or now.monthday > 12)
-  isPurpleWed or isPurpleFri
+  isPurpleWed or isPurpleThu or isPurpleFri
 
 template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {.immediate.} =
   let fn = filename
@@ -94,7 +96,7 @@ proc writePPM(surface: PSurface, f: File) =
 proc makePpmFromString(displayString: string, color: Color, filename: string) =
   let
     font = newFont(name = FONT_FILE, size = 16, color = color)
-    (textWidth, textHeight) = textBounds(displayString, font)
+    (textWidth, _) = textBounds(displayString, font)
     surface = newSurface(AKAPI_LOGO.w + textWidth + 15, 18)
 
   surface.blit((10 + textWidth, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h))
@@ -165,7 +167,7 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
     if bestHour != nil:
       weatherString &= ". Probably best to go home between " & bestHour
 
-  weatherColor = if isPurpleDayz(): PURPLE else: RED
+  weatherColor = if isPurpleDaze(): PURPLE else: RED
 
   echo weatherString
 
@@ -207,7 +209,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
     first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m $ "
 
-  TColor = if isPurpleDayz(): PURPLE else: RED
+  TColor = if isPurpleDaze(): PURPLE else: RED
 
   echo first_in_direction
 
@@ -215,7 +217,8 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM
   let stock = parseJson(rawStock)
   stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 2, format = ffDecimal)
 
-  var strChange:string = stock["query"]["results"]["quote"]["Change"].str
+  var strChange:string = try: stock["query"]["results"]["quote"]["Change"].str
+                         except: nil
   if strChange == nil: strChange = "0.0"
 
   let stockChange = try: parseFloat strChange
@@ -246,6 +249,6 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
     ezString = "EZRide - " & ezString
     echo ezString
 
-  ezColor = if isPurpleDayz(): PURPLE else: BLUE
+  ezColor = if isPurpleDaze(): PURPLE else: BLUE
 
 runForever()
