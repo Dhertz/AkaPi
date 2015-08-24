@@ -35,7 +35,6 @@ const
   MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?api_key=" & MBTA_KEY & "&stop=place-knncl&format=json"
   YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
   EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
-  CRICK            = "http://cricscore-api.appspot.com/csa?id=743969"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
 
@@ -60,20 +59,20 @@ template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {
 
 proc loadAkaPiLogo(): PSurface =
   withFile(AkaPiLogo, AKAPI_LOGO_FILE, fmRead):
-    if AkaPiLogo.readLine != "P6":
+    if AkaPiLogo.readLine() != "P6":
       raise newException(IOError, "Invalid file format")
 
-    var line = ""
-    while AkaPiLogo.readLine(line):
-      if line[0] != '#':
-        break
+    var line = AkaPiLogo.readLine()
+    while line[0] == '#':
+      line = AkaPiLogo.readLine()
 
     if AkaPiLogo.readLine != "255":
       raise newException(IOError, "Invalid file format")
 
-    var
+    let
       parts = line.split(" ")
       (x, y) = (parseInt parts[0], parseInt parts[1])
+    var
       arr: array[256, int8]
       read = AkaPiLogo.readBytes(arr, 0, 255)
       pos = 0
@@ -87,7 +86,7 @@ proc loadAkaPiLogo(): PSurface =
       read = AkaPiLogo.readBytes(arr, 0, 255)
 
 proc writePPM(surface: PSurface, f: File) =
-  f.writeln "P6\n", surface.w, " ", surface.h, "\n255"
+  f.writeLine "P6\n", surface.w, " ", surface.h, "\n255"
   for y in 0..surface.h-1:
     for x in 0..surface.w-1:
       var (r, g, b) = surface[(x, y)].extractRGB
@@ -101,8 +100,13 @@ proc makePpmFromString(displayString: string, color: Color, filename: string) =
     (textWidth, _) = textBounds(displayString, font)
     surface = newSurface(AKAPI_LOGO.w + textWidth + 15, 18)
 
-  surface.blit((10 + textWidth, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h))
+  # Put text with 5px margin onto Surface
   surface.drawText((5,1), displayString, font)
+
+  # Put the logo 5px after the end of the text - "block image transfer"
+  # proc blit*(destSurf: PSurface, destRect: Rect, srcSurf: PSurface, srcRect: Rect)
+  surface.blit((10 + textWidth, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h))
+
   echo("Saving ", filename)
   withfile(f, filename, fmWrite):
     surface.writePPM(f)
@@ -111,14 +115,17 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
   var
     bestTime: tuple[time: TimeInfo, chance: float] = (getLocalTime(getTime()), 1.0)
     forcastTime: TimeInfo
-  let today = getLocalTime(getTime()).monthday
+  let
+    today = getLocalTime(getTime()).monthday
+
   for hour in weather["hourly"]["data"]:
-    forcastTime = fromSeconds(hour["time"].num).getLocalTime()
+    forcastTime = fromSeconds(hour["time"].getNum).getLocalTime()
     if begin <= forcastTime.hour and forcastTime.hour <= finish and forcastTime.monthday == today:
-      let bestHourCondition = try: hour["precipProbability"].fnum
-                              except: float(hour["precipProbability"].num)
+      let bestHourCondition = try: hour["precipProbability"].getFnum
+                              except: float(hour["precipProbability"].getNum)
       if bestHourCondition < bestTime.chance:
         bestTime = (forcastTime, bestHourCondition)
+
   if (bestTime.time.hour != begin or bestTime.chance > 0.1) and bestTime.chance != 1.0:
     let oneHour = initInterval(hours=1)
     result = bestTime.time.format("htt") & " and " & (bestTime.time + oneHour).format("htt")
@@ -127,15 +134,17 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
   block:
     proc asyncJob():Future[int] {.async.} =
       var
-        displayString = ""
+        displayString:string
         color:Color
-        oldString = ""
+        oldString:string
 
       while true:
         let content = try: getContent(url)
                       except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
         try:
+          #Code from template
           actions
+
           if displayString != oldString:
             oldString = displayString
             if displayString == "":
@@ -152,10 +161,10 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
 recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
   let
     weather = parseJson(rawWeather)
-    feelsLike = try: round(weather["currently"]["apparentTemperature"].fnum)
-                except: int weather["currently"]["apparentTemperature"].num
+    feelsLike = try: round(weather["currently"]["apparentTemperature"].getFNum)
+                except: int weather["currently"]["apparentTemperature"].getNum
 
-  weatherString = weather["hourly"]["summary"].str & " Feels like " & $feelsLike & "C"
+  weatherString = weather["hourly"]["summary"].getStr & " Feels like " & $feelsLike & "C"
   weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
 
   let now = getLocalTime(getTime())
@@ -180,35 +189,34 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
   first_in_direction = ""
 
   for mode in realtime["mode"]:
-    if mode["mode_name"].str == "Subway":
+    if mode["mode_name"].getStr == "Subway":
       realtimeSubway = mode
 
   if realtimeSubway == nil:
     raise newException(IOError, "MBTA JSON is not as we expected")
 
   var seen_headsigns = initOrderedTable[string, seq[int]]()
+  # Route = subway line, trip = individual train
   for route in realtimeSubway["route"]:
     for direction in route["direction"]:
       for trip in direction["trip"]:
-        var secAway = parseInt(trip["pre_away"].str)
+        var secAway = parseInt(trip["pre_away"].getStr)
+        # Skip trains that you couldn't get to from the office
         if 200 >= secAway:
            continue
-        elif not seen_headsigns.hasKey(trip["trip_headsign"].str):
-           seen_headsigns[trip["trip_headsign"].str] = @[secAway]
+        # Headsign = destination
+        elif not seen_headsigns.hasKey(trip["trip_headsign"].getStr):
+           seen_headsigns[trip["trip_headsign"].getStr] = @[secAway]
         else:
-           seen_headsigns[trip["trip_headsign"].str] = seen_headsigns[trip["trip_headsign"].str] & secAway
+           seen_headsigns[trip["trip_headsign"].getStr] = seen_headsigns[trip["trip_headsign"].getStr] & secAway
 
   var headsigns = lc[x | (x <- seen_headsigns.keys), string]
-
   headsigns.sort(system.cmp[string])
 
   for headsign in headsigns:
     var sortedTimes = seen_headsigns[headsign][0..min(1, len(seen_headsigns[headsign])-1)]
-
     sortedTimes.sort(system.cmp[int])
-
     let headsignMinutes = lc[($round(x/60)) | (x <- sortedTimes), string]
-
     first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m $ "
 
   TColor = if isPurpleDaze(): PURPLE else: RED
@@ -216,15 +224,15 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
   echo first_in_direction
 
 recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
-  let stock = parseJson(rawStock)
-  stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 2, format = ffDecimal)
+  let
+    stock = parseJson(rawStock)
+    stockSymbol = stock["query"]["results"]["quote"]["symbol"].getStr
+    stockPrice = parseFloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].getStr)
+  var
+    stockString = stockSymbol & ":" & formatFloat(stockPrice, precision = 2, format = ffDecimal)
 
-  var strChange:string = try: stock["query"]["results"]["quote"]["Change"].str
-                         except: nil
-  if strChange == nil: strChange = "0.0"
-
-  let stockChange = try: parseFloat strChange
-                    except: 0.0
+  var stockChange = try: parseFloat (stock["query"]["results"]["quote"]["Change"].getStr)
+                         except: 0.0
 
   if stockChange < 0:
     stockColor = RED
@@ -238,28 +246,20 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM
 recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
   let ezStream = newStringStream first_in_direction
   ezString = ""
-  for direction in ezStream.parseXml.findAll "direction":
-    var sortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
+  for direction in ezStream.parseXml.findAll("direction"):
+    let unsortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
 
-    if sortedTimes.len == 0: continue
-    sortedTimes.sort(system.cmp[int])
+    if unsortedTimes.len == 0: continue
+    let sortedTimes = unsortedTimes.sorted(system.cmp[int])
 
     var strSortedTimes = lc[$x | (x <- sortedTimes), string]
-    ezString &= direction.attr("title") & ":" & join(strSortedTimes[0..min(1, strSortedTimes.len-1)], "m, ") & "m "
+    ezString &= direction.attr("title") & ":" & join(strSortedTimes, "m, ") & "m "
 
   if ezString != "":
     ezString = "EZRide - " & ezString
     echo ezString
 
   ezColor = if isPurpleDaze(): PURPLE else: BLUE
-
-recurringJob(crick_score, crickString, crickColour, "sign_cricket.ppm", 60, CRICK):
-  let crick = parseJson(crick_score)
-  crickString = "Second Ashes Test:" & crick[0]["si"].str & " - " & crick[0]["de"].str.replace("(").replace(")")
-
-  echo crickString
-
-  crickColour = if isPurpleDaze(): PURPLE else: BLUE
 
 proc emailPurpleDaze(): Future[void] {.async.} =
   while true:
