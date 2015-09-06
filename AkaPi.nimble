@@ -7,4 +7,4 @@ license       = "MIT"
 bin = "main"
 
 [Deps]
-Requires: "nim >= 0.10.0, nake >= 1.0"
+Requires: "nim >= 0.10.0, nake >= 1.0, graphics >= 1.0"

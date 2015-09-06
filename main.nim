@@ -1,5 +1,6 @@
 # DHertz's raspberry-pi digital signage runner
 # TODO: String formatting. It is gross at the moment
+#       There must be a way to stop these really long strings being on one line. Right guys? guys??
 #       Array slices
 #       Make sure T returns empty string when no trains available
 #       Use newer Json accessors with defaults
@@ -15,6 +16,7 @@ import httpclient
 import json
 import math
 import os
+import smtp
 import streams
 import strutils
 import tables
@@ -38,12 +40,13 @@ const
 
 let AKAPI_LOGO:PSurface = loadAkaPiLogo()
 
-proc isPurpleDayz():bool =
+proc isPurpleDaze(now = getLocalTime(getTime())):bool =
+#Thurs November 21 - "We don't know why, but we are scared if we change it it will break"
   let
-    now = getLocalTime(getTime())
     isPurpleWed = now.weekday == dWed and 3 < now.monthday and now.monthday < 11
+    isPurpleThu = now.weekday == dThu and 21 == now.monthday and mNov == now.month
     isPurpleFri = now.weekday == dFri and (now.monthday < 6 or now.monthday > 12)
-  isPurpleWed or isPurpleFri
+  isPurpleWed or isPurpleThu or isPurpleFri
 
 template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {.immediate.} =
   let fn = filename
@@ -56,20 +59,20 @@ template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {
 
 proc loadAkaPiLogo(): PSurface =
   withFile(AkaPiLogo, AKAPI_LOGO_FILE, fmRead):
-    if AkaPiLogo.readLine != "P6":
+    if AkaPiLogo.readLine() != "P6":
       raise newException(IOError, "Invalid file format")
 
-    var line = ""
-    while AkaPiLogo.readLine(line):
-      if line[0] != '#':
-        break
+    var line = AkaPiLogo.readLine()
+    while line[0] == '#':
+      line = AkaPiLogo.readLine()
 
     if AkaPiLogo.readLine != "255":
       raise newException(IOError, "Invalid file format")
 
-    var
+    let
       parts = line.split(" ")
       (x, y) = (parseInt parts[0], parseInt parts[1])
+    var
       arr: array[256, int8]
       read = AkaPiLogo.readBytes(arr, 0, 255)
       pos = 0
@@ -83,7 +86,7 @@ proc loadAkaPiLogo(): PSurface =
       read = AkaPiLogo.readBytes(arr, 0, 255)
 
 proc writePPM(surface: PSurface, f: File) =
-  f.writeln "P6\n", surface.w, " ", surface.h, "\n255"
+  f.writeLine "P6\n", surface.w, " ", surface.h, "\n255"
   for y in 0..surface.h-1:
     for x in 0..surface.w-1:
       var (r, g, b) = surface[(x, y)].extractRGB
@@ -94,11 +97,16 @@ proc writePPM(surface: PSurface, f: File) =
 proc makePpmFromString(displayString: string, color: Color, filename: string) =
   let
     font = newFont(name = FONT_FILE, size = 16, color = color)
-    (textWidth, textHeight) = textBounds(displayString, font)
+    (textWidth, _) = textBounds(displayString, font)
     surface = newSurface(AKAPI_LOGO.w + textWidth + 15, 18)
 
-  surface.blit((10 + textWidth, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h))
+  # Put text with 5px margin onto Surface
   surface.drawText((5,1), displayString, font)
+
+  # Put the logo 5px after the end of the text - "block image transfer"
+  # proc blit*(destSurf: PSurface, destRect: Rect, srcSurf: PSurface, srcRect: Rect)
+  surface.blit((10 + textWidth, 0, AKAPI_LOGO.w, AKAPI_LOGO.h), AKAPI_LOGO, (0, 0, AKAPI_LOGO.w, AKAPI_LOGO.h))
+
   echo("Saving ", filename)
   withfile(f, filename, fmWrite):
     surface.writePPM(f)
@@ -107,15 +115,18 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
   var
     bestTime: tuple[time: TimeInfo, chance: float] = (getLocalTime(getTime()), 1.0)
     forcastTime: TimeInfo
-  let today = getLocalTime(getTime()).monthday
+  let
+    today = getLocalTime(getTime()).monthday
+
   for hour in weather["hourly"]["data"]:
-    forcastTime = fromSeconds(hour["time"].num).getLocalTime()
+    forcastTime = fromSeconds(hour["time"].getNum).getLocalTime()
     if begin <= forcastTime.hour and forcastTime.hour <= finish and forcastTime.monthday == today:
-      let bestHourCondition = try: hour["precipProbability"].fnum
-                              except: float(hour["precipProbability"].num)
+      let bestHourCondition = try: hour["precipProbability"].getFnum
+                              except: float(hour["precipProbability"].getNum)
       if bestHourCondition < bestTime.chance:
         bestTime = (forcastTime, bestHourCondition)
-  if (bestTime.time.hour != begin or bestTime.chance != 0.0) and bestTime.chance != 1.0:
+
+  if (bestTime.time.hour != begin or bestTime.chance > 0.1) and bestTime.chance != 1.0:
     let oneHour = initInterval(hours=1)
     result = bestTime.time.format("htt") & " and " & (bestTime.time + oneHour).format("htt")
 
@@ -123,15 +134,17 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
   block:
     proc asyncJob():Future[int] {.async.} =
       var
-        displayString = ""
+        displayString:string
         color:Color
-        oldString = ""
+        oldString:string
 
       while true:
         let content = try: getContent(url)
                       except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
         try:
+          #Code from template
           actions
+
           if displayString != oldString:
             oldString = displayString
             if displayString == "":
@@ -148,10 +161,10 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
 recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
   let
     weather = parseJson(rawWeather)
-    feelsLike = try: round(weather["currently"]["apparentTemperature"].fnum)
-                except: int weather["currently"]["apparentTemperature"].num
+    feelsLike = try: round(weather["currently"]["apparentTemperature"].getFNum)
+                except: int weather["currently"]["apparentTemperature"].getNum
 
-  weatherString = weather["hourly"]["summary"].str & " Feels like " & $feelsLike & "C"
+  weatherString = weather["hourly"]["summary"].getStr & " Feels like " & $feelsLike & "C"
   weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
 
   let now = getLocalTime(getTime())
@@ -165,7 +178,7 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
     if bestHour != nil:
       weatherString &= ". Probably best to go home between " & bestHour
 
-  weatherColor = if isPurpleDayz(): PURPLE else: RED
+  weatherColor = if isPurpleDaze(): PURPLE else: RED
 
   echo weatherString
 
@@ -176,79 +189,88 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
   first_in_direction = ""
 
   for mode in realtime["mode"]:
-    if mode["mode_name"].str == "Subway":
+    if mode["mode_name"].getStr == "Subway":
       realtimeSubway = mode
 
   if realtimeSubway == nil:
     raise newException(IOError, "MBTA JSON is not as we expected")
 
   var seen_headsigns = initOrderedTable[string, seq[int]]()
+  # Route = subway line, trip = individual train
   for route in realtimeSubway["route"]:
     for direction in route["direction"]:
       for trip in direction["trip"]:
-        var secAway = parseInt(trip["pre_away"].str)
+        var secAway = parseInt(trip["pre_away"].getStr)
+        # Skip trains that you couldn't get to from the office
         if 200 >= secAway:
            continue
-        elif not seen_headsigns.hasKey(trip["trip_headsign"].str):
-           seen_headsigns[trip["trip_headsign"].str] = @[secAway]
+        # Headsign = destination
+        elif not seen_headsigns.hasKey(trip["trip_headsign"].getStr):
+           seen_headsigns[trip["trip_headsign"].getStr] = @[secAway]
         else:
-           seen_headsigns[trip["trip_headsign"].str] = seen_headsigns[trip["trip_headsign"].str] & secAway
+           seen_headsigns[trip["trip_headsign"].getStr] = seen_headsigns[trip["trip_headsign"].getStr] & secAway
 
   var headsigns = lc[x | (x <- seen_headsigns.keys), string]
-
   headsigns.sort(system.cmp[string])
 
   for headsign in headsigns:
     var sortedTimes = seen_headsigns[headsign][0..min(1, len(seen_headsigns[headsign])-1)]
-
     sortedTimes.sort(system.cmp[int])
-
     let headsignMinutes = lc[($round(x/60)) | (x <- sortedTimes), string]
-
     first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m $ "
 
-  TColor = if isPurpleDayz(): PURPLE else: RED
+  TColor = if isPurpleDaze(): PURPLE else: RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 1, YAHOO_AKAM_STOCK):
-  let stock = parseJson(rawStock)
-  stockString = stock["query"]["results"]["quote"]["symbol"].str & ":" &  formatFloat(parsefloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].str), precision = 4)
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
+  let
+    stock = parseJson(rawStock)
+    stockSymbol = stock["query"]["results"]["quote"]["symbol"].getStr
+    stockPrice = parseFloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].getStr)
+  var
+    stockString = stockSymbol & ":" & formatFloat(stockPrice, precision = 2, format = ffDecimal)
 
-  var strChange:string = stock["query"]["results"]["quote"]["Change"].str
-  if strChange == nil: strChange = "0.0"
-
-  var stockChange = try: parseFloat strChange
-                  except: 0.0
-
-  #Null handling. fnum(JsonNode) returns min float (6.9e-310) on some errors!
-  if 0.0001 > stockChange and stockChange > 0.0: stockChange = 0
+  var stockChange = try: parseFloat (stock["query"]["results"]["quote"]["Change"].getStr)
+                         except: 0.0
 
   if stockChange < 0:
     stockColor = RED
-    stockString &= '%' & formatFloat(stockChange * -1, precision = 2)
+    stockString &= '%' & formatFloat(stockChange * -1, precision = 2, format = ffDecimal)
   else:
     stockColor = GREEN
-    stockString &= '&' & formatFloat(stockChange, precision = 2)
+    stockString &= '&' & formatFloat(stockChange, precision = 2, format = ffDecimal)
 
   echo stockString
 
 recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
   let ezStream = newStringStream first_in_direction
   ezString = ""
-  for direction in ezStream.parseXml.findAll "direction":
-    var sortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
+  for direction in ezStream.parseXml.findAll("direction"):
+    let unsortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
 
-    if sortedTimes.len == 0: continue
-    sortedTimes.sort(system.cmp[int])
+    if unsortedTimes.len == 0: continue
+    let sortedTimes = unsortedTimes.sorted(system.cmp[int])
 
     var strSortedTimes = lc[$x | (x <- sortedTimes), string]
-    ezString &= direction.attr("title") & ":" & join(strSortedTimes[0..min(1, strSortedTimes.len-1)], "m, ") & "m "
+    ezString &= direction.attr("title") & ":" & join(strSortedTimes, "m, ") & "m "
 
   if ezString != "":
     ezString = "EZRide - " & ezString
     echo ezString
 
-  ezColor = if isPurpleDayz(): PURPLE else: BLUE
+  ezColor = if isPurpleDaze(): PURPLE else: BLUE
+
+proc emailPurpleDaze(): Future[void] {.async.} =
+  while true:
+    let now = getLocalTime(getTime())
+    if now.hour == 17 and isPurpleDaze(now + initInterval(days=1)):
+      let msg = createMessage("Purple Daze incoming!", "Remember to wear one of your finest purple garments tomorrow.", @[purpleEmail])
+      var serv = connect(SMTPServer)
+      echo ("\n" & $msg & "\n")
+      serv.sendmail(myEmail, @[purpleEmail], $msg)
+    await sleepAsync(3600*1000)
+
+discard emailPurpleDaze()
 
 runForever()
