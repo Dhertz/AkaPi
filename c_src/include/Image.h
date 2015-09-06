@@ -1,19 +1,26 @@
 #include <iostream>
-
-
 struct Pixel {
     uint8_t red;
     uint8_t green;
     uint8_t blue;
 };
 
-struct LinkedScrollingImage {
-    LinkedScrollingImage *next;
+struct Frame {
+    Frame *next;
     Pixel *image;
     int32_t offset;
     int32_t width;
     int32_t height;
 };
+
+struct LinkedScrollingImage {
+    LinkedScrollingImage *next;
+    Frame *frames;
+    int32_t num_frames;
+    long last_redraw;
+    int32_t offset;
+};
+
 // TODO: Redo loadPPM and Readline to be more sane...
 char *ReadLine(FILE *f, char *buffer, size_t len) {
     char *result;
@@ -24,7 +31,7 @@ char *ReadLine(FILE *f, char *buffer, size_t len) {
 }
 
 
-LinkedScrollingImage* LoadPPM(const char *filename) {
+Frame* LoadPPM(const char *filename) {
     FILE *f = fopen(filename, "r");
     if (f == NULL) { perror("fopen()"); return NULL; }
     if (flock(fileno(f), LOCK_SH)) {perror("flock()"); fclose(f); return NULL;}
@@ -53,10 +60,9 @@ LinkedScrollingImage* LoadPPM(const char *filename) {
 #undef EXIT_WITH_MSG
     fclose(f);
     flock(fileno(f), LOCK_UN);
-    LinkedScrollingImage *ret = new LinkedScrollingImage;
+    Frame *ret = new Frame;
     ret->image = new_image;
     ret->width = new_width;
     ret->height = new_height;
-    ret->offset = 0;
     return ret;
 }
