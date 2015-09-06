@@ -205,7 +205,7 @@ void loadAnimations(std::string rel_path) {
 			LinkedScrollingImage *l = new LinkedScrollingImage;
 			l->num_frames = 0;
 			l->offset = 0;
-			Frame *prev_frame;
+			Frame *prev_frame = NULL;
 			for (auto &frame_path : frame_paths) {
 				Frame *i = LoadPPM(frame_path.c_str());
 				std::cout << "   frame: " << frame_path << '\n';
