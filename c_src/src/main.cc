@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <chrono>
 #include <Image.h>
+#include <fstream>
 #define SCREENS 8
 using namespace rgb_matrix;
 
@@ -106,7 +107,7 @@ void update_animations(hash_t& images) {
 	long cur_millis = std::chrono::duration_cast<std::chrono::milliseconds>(dur).count();
 	for (auto &im : images) {
 		if(im.second->num_frames <= 1) continue;
-		if(!im.second->last_redraw || cur_millis - im.second->last_redraw > 100) {
+		if(!im.second->last_redraw || cur_millis - im.second->last_redraw > im.second->frame_pause) {
 			im.second->frames = im.second->frames->next;
 			im.second->last_redraw = cur_millis;
 		}
@@ -177,6 +178,7 @@ void fixImages(struct inotify_event* e) {
 }
 
 void loadAnimations(std::string rel_path) {
+	//This needs to be broken up into functions, methinks. DH
 	std::string animation_path = rel_path.append("animations/");
 	DIR* dir = opendir(animation_path.c_str());
 	if (dir) {
@@ -208,7 +210,7 @@ void loadAnimations(std::string rel_path) {
 			Frame *prev_frame = NULL;
 			for (auto &frame_path : frame_paths) {
 				Frame *i = LoadPPM(frame_path.c_str());
-				std::cout << "   frame: " << frame_path << '\n';
+				std::cout << "   frame: " << frame_path << std::endl;
 				if (prev_frame) {
 					prev_frame->next = i;
 				} else {
@@ -217,6 +219,20 @@ void loadAnimations(std::string rel_path) {
 				l->num_frames++;
 				prev_frame = i;
 			}
+			std::string conf_path(folder_path + "/animate.conf");
+			std::ifstream f;
+			f.open(conf_path);
+			try {
+				std::string conf_var("");
+				int value;
+				f >> conf_var >> value;
+				std::string frame_pause("frame_pause");
+				if(conf_var.find(frame_pause) == std::string::npos) throw std::exception();
+				l->frame_pause = value;
+			} catch (std::exception& e) {
+				l->frame_pause = 100;
+			}
+			std::cout << "   frame_pause: " << l->frame_pause << std::endl;
 			prev_frame->next = l->frames;
 			std::lock_guard<std::mutex> imghash_lock(imghash_mutex);
 			l->offset = calculate_offset();

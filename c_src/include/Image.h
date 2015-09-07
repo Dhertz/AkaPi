@@ -19,6 +19,7 @@ struct LinkedScrollingImage {
     int32_t num_frames;
     long last_redraw;
     int32_t offset;
+    int frame_pause;
 };
 
 // TODO: Redo loadPPM and Readline to be more sane...
