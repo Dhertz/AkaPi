@@ -179,6 +179,10 @@ void fixImages(struct inotify_event* e) {
 
 void loadAnimations(std::string rel_path) {
 	//This needs to be broken up into functions, methinks. DH
+	auto len = rel_path.length();
+	if (rel_path[len-1] != '/') {
+		rel_path.append("/");
+	}
 	std::string animation_path = rel_path.append("animations/");
 	DIR* dir = opendir(animation_path.c_str());
 	if (dir) {
