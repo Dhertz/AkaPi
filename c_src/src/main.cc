@@ -19,7 +19,7 @@
 #include <chrono>
 #include <Image.h>
 #include <fstream>
-#define SCREENS 8
+#define SCREENS 8 
 using namespace rgb_matrix;
 
 int speed = 0;
@@ -106,8 +106,10 @@ void update_animations(hash_t& images) {
 	auto dur = now.time_since_epoch();
 	long cur_millis = std::chrono::duration_cast<std::chrono::milliseconds>(dur).count();
 	for (auto &im : images) {
-		if(im.second->num_frames <= 1) continue;
-		if(!im.second->last_redraw || cur_millis - im.second->last_redraw > im.second->frame_pause) {
+		if(im.second->num_frames <= 1) {
+			continue;	
+		} 
+		if(!im.second->last_redraw || ((cur_millis - im.second->last_redraw) > im.second->frame_pause)) {
 			im.second->frames = im.second->frames->next;
 			im.second->last_redraw = cur_millis;
 		}
@@ -209,6 +211,7 @@ void loadAnimations(std::string rel_path) {
 			if (frame_paths.size() < 1) continue; //there are no PPMs in here
 			std::sort(frame_paths.begin(), frame_paths.end());
 			LinkedScrollingImage *l = new LinkedScrollingImage;
+			l->last_redraw = 0;
 			l->num_frames = 0;
 			l->offset = 0;
 			Frame *prev_frame = NULL;
