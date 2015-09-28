@@ -1,4 +1,4 @@
-# DHertz's raspberry-pi digital signage runner
+
 # TODO: String formatting. It is gross at the moment
 #       There must be a way to stop these really long strings being on one line. Right guys? guys??
 #       Array slices
@@ -16,10 +16,12 @@ import httpclient
 import json
 import math
 import os
+import osproc
 import smtp
 import streams
 import strutils
 import tables
+import twitter
 import times
 import xmlparser
 import xmltree
@@ -260,6 +262,26 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
     echo ezString
 
   ezColor = if isPurpleDaze(): PURPLE else: BLUE
+
+
+proc getTwitterStatuses(): Future[void] {.async.} =
+  var consumerToken = newConsumerToken(twitterAppPubTok, twitterAppPrivTok) 
+  var twitterAPI = newTwitterAPI(consumerToken, twitterOAuthPubKey, twitterOAuthPrivKey)
+  while true:
+    let resp = twitterAPI.mentionsTimeline()
+    if resp.status == "200 OK":
+      let tweet_json = parseJson(resp.body)
+      if tweet_json.len > 0:
+        let
+          tweet = "@" & tweet_json[0]["user"]["screen_name"].getStr & ": " & tweet_json[0]["text"].getStr
+          clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") & '"').strip(trailing=true)
+
+        echo clean_tweet
+        makePpmFromString(clean_tweet, BLUE, "sign_tweet.ppm")
+
+    await sleepAsync(180*1000)
+
+discard getTwitterStatuses()
 
 proc emailPurpleDaze(): Future[void] {.async.} =
   while true:
