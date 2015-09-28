@@ -97,6 +97,7 @@ Current information displayed
     based on chance of precipitation.
 -   Purple dayz
 -   Email reminders the day before purple dayz
+-   Twitter replies to the [@AkamaiPi] account
 
 Animations
 ----------
@@ -158,7 +159,7 @@ To Do
         the sign if they are the same
 -   Make prettier (output and code)
 -   Make weather more concise
-
+  [@AkamaiPi]: https://twitter.com/akamaipi
   [1]: https://github.com/Dhertz/AkaPi/tree/master/animations
   [2]: http://ledseq.com/forums/topic/nyan-cat/
   [3]: http://nim-lang.org/download.html
