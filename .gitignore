@@ -1,3 +1,9 @@
 nimcache/
 secrets.nim
 nakefile
+AkaPi_*
+c_src/bin/
+c_src/obj/
+*.swp
+*.ppm
+
