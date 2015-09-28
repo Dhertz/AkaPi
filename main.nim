@@ -217,7 +217,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
     var sortedTimes = seen_headsigns[headsign][0..min(1, len(seen_headsigns[headsign])-1)]
     sortedTimes.sort(system.cmp[int])
     let headsignMinutes = lc[($round(x/60)) | (x <- sortedTimes), string]
-    first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m $ "
+    first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m  { "
 
   TColor = if isPurpleDaze(): PURPLE else: RED
 
@@ -236,10 +236,10 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM
 
   if stockChange < 0:
     stockColor = RED
-    stockString &= '%' & formatFloat(stockChange * -1, precision = 2, format = ffDecimal)
+    stockString &= "|" & formatFloat(stockChange * -1, precision = 2, format = ffDecimal)
   else:
     stockColor = GREEN
-    stockString &= '&' & formatFloat(stockChange, precision = 2, format = ffDecimal)
+    stockString &= "}" & formatFloat(stockChange, precision = 2, format = ffDecimal)
 
   echo stockString
 
