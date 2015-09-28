@@ -252,7 +252,7 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
     let unsortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
 
     if unsortedTimes.len == 0: continue
-    let sortedTimes = unsortedTimes.sorted(system.cmp[int])
+    let sortedTimes = unsortedTimes.sorted(system.cmp[int])[0..min(1, len(unsortedTimes)-1)]
 
     var strSortedTimes = lc[$x | (x <- sortedTimes), string]
     ezString &= direction.attr("title") & ":" & join(strSortedTimes, "m, ") & "m "
