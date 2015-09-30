@@ -155,7 +155,8 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
             else:
               makePpmFromString(displayString, color, filename)
         except:
-          echo("Failed to create ", filename, ":\n\t", getCurrentExceptionMsg(), "\n\n\t", content)
+          echo("Failed to create ", filename, ", removing because: \n\t", getCurrentExceptionMsg(), "\n\n\t", content)
+          removeFile(filename)
 
         await sleepAsync(waitTime*1000)
       return 1
