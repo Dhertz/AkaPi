@@ -1,9 +1,7 @@
 
 # TODO: String formatting. It is gross at the moment
-#       There must be a way to stop these really long strings being on one line. Right guys? guys??
 #       Array slices
 #       Make sure T returns empty string when no trains available
-#       Use newer Json accessors with defaults
 
 include secrets
 
@@ -33,9 +31,12 @@ const
   GREEN            = rgb(80,  250, 39)
   BLUE             = rgb(40,  90,  229)
   PURPLE           = rgb(153, 17,  153)
-  FORECAST_IO      = "https://api.forecast.io/forecast/" & FORECAST_IO_KEY & "/42.364452,-71.089179?units=si"
-  MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?api_key=" & MBTA_KEY & "&stop=place-knncl&format=json"
-  YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
+  FORECAST_IO      = "https://api.forecast.io/forecast/$KEY/42.364452,-71.089179?units=si" % ["KEY", FORECAST_IO_KEY]
+  MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?" &
+      "api_key=$KEY&stop=place-knncl&format=json" % ["KEY", MBTA_KEY]
+  YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from" &
+      "%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true" &
+      "&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
   EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
@@ -130,7 +131,7 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
 
   if (bestTime.time.hour != begin or bestTime.chance > 0.1) and bestTime.chance != 1.0:
     let oneHour = initInterval(hours=1)
-    result = bestTime.time.format("htt") & " and " & (bestTime.time + oneHour).format("htt")
+    result = "$1 and $2" % [bestTime.time.format("htt"), (bestTime.time + oneHour).format("htt")]
 
 template recurringJob(content, displayString, color, filename, waitTime: int, url, actions: stmt) {.immediate.} =
   block:
@@ -154,7 +155,7 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
             else:
               makePpmFromString(displayString, color, filename)
         except:
-          echo("Failed to create " & filename & ":\n\t", getCurrentExceptionMsg())
+          echo("Failed to create ", filename, ":\n\t", getCurrentExceptionMsg(), "\n\n\t", content)
 
         await sleepAsync(waitTime*1000)
       return 1
@@ -210,7 +211,8 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
         elif not seen_headsigns.hasKey(trip["trip_headsign"].getStr):
            seen_headsigns[trip["trip_headsign"].getStr] = @[secAway]
         else:
-           seen_headsigns[trip["trip_headsign"].getStr] = seen_headsigns[trip["trip_headsign"].getStr] & secAway
+           var dest_times = seen_headsigns[trip["trip_headsign"].getStr]
+           dest_times.add(secAway)
 
   var headsigns = lc[x | (x <- seen_headsigns.keys), string]
   headsigns.sort(system.cmp[string])
@@ -219,7 +221,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
     var sortedTimes = seen_headsigns[headsign][0..min(1, len(seen_headsigns[headsign])-1)]
     sortedTimes.sort(system.cmp[int])
     let headsignMinutes = lc[($round(x/60)) | (x <- sortedTimes), string]
-    first_in_direction &=  headsign & " " & join(headsignMinutes, "m, ") & "m  { "
+    first_in_direction &=  "$dest ${times}m { " % ["dest", headsign, "times", join(headsignMinutes, "m, ")]
 
   TColor = if isPurpleDaze(): PURPLE else: RED
 
@@ -255,7 +257,8 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
     let sortedTimes = unsortedTimes.sorted(system.cmp[int])[0..min(1, len(unsortedTimes)-1)]
 
     var strSortedTimes = lc[$x | (x <- sortedTimes), string]
-    ezString &= direction.attr("title") & ":" & join(strSortedTimes, "m, ") & "m "
+    if strSortedTimes.len > 0:
+      ezString &= "$dest: ${times}m" % ["dest", direction.attr("title"), "times", join(strSortedTimes, "m, ")]
 
   if ezString != "":
     ezString = "EZRide - " & ezString
@@ -265,19 +268,24 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
 
 
 proc getTwitterStatuses(): Future[void] {.async.} =
-  var consumerToken = newConsumerToken(twitterAppPubTok, twitterAppPrivTok) 
-  var twitterAPI = newTwitterAPI(consumerToken, twitterOAuthPubKey, twitterOAuthPrivKey)
+  var
+    consumerToken = newConsumerToken(twitterAppPubTok, twitterAppPrivTok)
+    twitterAPI = newTwitterAPI(consumerToken, twitterOAuthPubKey, twitterOAuthPrivKey)
+    oldString = ""
   while true:
     let resp = twitterAPI.mentionsTimeline()
     if resp.status == "200 OK":
       let tweet_json = parseJson(resp.body)
       if tweet_json.len > 0:
         let
-          tweet = "@" & tweet_json[0]["user"]["screen_name"].getStr & ": " & tweet_json[0]["text"].getStr
+          tweet = "@${user}: $tweet" % ["user", tweet_json[0]["user"]["screen_name"].getStr, "tweet", tweet_json[0]["text"].getStr]
           clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") & '"').strip(trailing=true)
 
         echo clean_tweet
-        makePpmFromString(clean_tweet, BLUE, "sign_tweet.ppm")
+        if clean_tweet != oldString:
+          makePpmFromString(clean_tweet, BLUE, "sign_tweet.ppm")
+        if clean_tweet == "":
+              removeFile("sign_tweet.ppm")
 
     await sleepAsync(180*1000)
 
