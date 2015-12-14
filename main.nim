@@ -27,19 +27,21 @@ import xmltree
 proc loadAkaPiLogo(): PSurface
 
 const
-  RED              = rgb(250, 45,  39)
-  GREEN            = rgb(80,  250, 39)
-  BLUE             = rgb(40,  90,  229)
-  PURPLE           = rgb(153, 17,  153)
-  FORECAST_IO      = "https://api.forecast.io/forecast/$KEY/42.364452,-71.089179?units=si" % ["KEY", FORECAST_IO_KEY]
-  MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?" &
-      "api_key=$KEY&stop=place-knncl&format=json" % ["KEY", MBTA_KEY]
-  YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from" &
+  RED                  = rgb(250, 45,  39)
+  GREEN                = rgb(80,  250, 39)
+  BLUE                 = rgb(40,  90,  229)
+  PURPLE               = rgb(153, 17,  153)
+  FORECAST_IO          = "https://api.forecast.io/forecast/$KEY/42.364452,-71.089179?units=si" % ["KEY", FORECAST_IO_KEY]
+  MBTA_SILVER_LINE_OUT = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?" &
+      "api_key=$KEY&stop=74624&format=json" % ["KEY", MBTA_KEY]
+  MBTA_SILVER_LINE_IN  = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?" &
+      "api_key=$KEY&stop=74614&format=json" % ["KEY", MBTA_KEY]
+  YAHOO_AKAM_STOCK     = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from" &
       "%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true" &
       "&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
-  EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
-  AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
-  FONT_FILE        = "MBTA.ttf"
+  EZ_RIDE              = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
+  AKAPI_LOGO_FILE      = "AkaPi_logo.ppm"
+  FONT_FILE            = "MBTA.ttf"
 
 let AKAPI_LOGO:PSurface = loadAkaPiLogo()
 
@@ -133,7 +135,7 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
     let oneHour = initInterval(hours=1)
     result = "$1 and $2" % [bestTime.time.format("htt"), (bestTime.time + oneHour).format("htt")]
 
-template recurringJob(content, displayString, color, filename, waitTime: int, url, actions: stmt) {.immediate.} =
+template recurringJob(content, displayString, color, filename, waitTime: int, urls: seq[int], actions: stmt) {.immediate.} =
   block:
     proc asyncJob():Future[int] {.async.} =
       var
@@ -142,8 +144,7 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
         oldString:string
 
       while true:
-        let content = try: getContent(url)
-                      except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
+        let content = lc[getContent(url) | (url <- urls), string]
         try:
           #Code from template
           actions
@@ -162,44 +163,42 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
       return 1
     discard asyncJob()
 
-recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
-  let
-    weather = parseJson(rawWeather)
-    feelsLike = try: round(weather["currently"]["apparentTemperature"].getFNum)
-                except: int weather["currently"]["apparentTemperature"].getNum
+# recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
+#   let
+#     weather = parseJson(rawWeather)
+#     feelsLike = try: round(weather["currently"]["apparentTemperature"].getFNum)
+#                 except: int weather["currently"]["apparentTemperature"].getNum
 
-  weatherString = weather["hourly"]["summary"].getStr & " Feels like " & $feelsLike & "C"
-  weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
+#   weatherString = weather["hourly"]["summary"].getStr & " Feels like " & $feelsLike & "C"
+#   weatherString = weatherString.replace("–", by="-").replace("(").replace(")")
 
-  let now = getLocalTime(getTime())
+#   let now = getLocalTime(getTime())
 
-  if now.hour < 14:
-    var bestHour = whenToLeave(11, 14, weather)
-    if bestHour != nil:
-      weatherString &= ". Probably best to go to lunch between " & bestHour
-  elif now.hour < 19:
-    var bestHour = whenToLeave(16, 19, weather)
-    if bestHour != nil:
-      weatherString &= ". Probably best to go home between " & bestHour
+#   if now.hour < 14:
+#     var bestHour = whenToLeave(11, 14, weather)
+#     if bestHour != nil:
+#       weatherString &= ". Probably best to go to lunch between " & bestHour
+#   elif now.hour < 19:
+#     var bestHour = whenToLeave(16, 19, weather)
+#     if bestHour != nil:
+#       weatherString &= ". Probably best to go home between " & bestHour
 
-  weatherColor = if isPurpleDaze(): PURPLE else: RED
+#   weatherColor = if isPurpleDaze(): PURPLE else: RED
 
-  echo weatherString
+#   echo weatherString
 
-recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED_LINE):
+proc getHeadsignTimes(rawRealtime: string): TableRef[string, seq[int]] =
   let realtime = parseJson(rawRealtime)
   var realtimeSubway: JsonNode
 
-  first_in_direction = ""
-
   for mode in realtime["mode"]:
-    if mode["mode_name"].getStr == "Subway":
+    if mode["mode_name"].getStr == "Bus":
       realtimeSubway = mode
 
   if realtimeSubway == nil:
     raise newException(IOError, "MBTA JSON is not as we expected")
 
-  var seen_headsigns = initOrderedTable[string, seq[int]]()
+  var seen_headsigns = newTable[string, seq[int]]()
   # Route = subway line, trip = individual train
   for route in realtimeSubway["route"]:
     for direction in route["direction"]:
@@ -214,6 +213,14 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
         else:
            var dest_times = seen_headsigns[trip["trip_headsign"].getStr]
            dest_times.add(secAway)
+  return seen_headsigns
+
+recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, @[MBTA_SILVER_LINE_IN, MBTA_SILVER_LINE_OUT]):
+  first_in_direction = ""
+  var seen_headsigns = initTable[string, seq[int]]()
+  for json_set in rawRealtime:
+    let headsigns = get_headsign_times(json_set)
+    for key in headsigns.keys(): seen_headsigns[key] = headsigns[key]
 
   var headsigns = lc[x | (x <- seen_headsigns.keys), string]
   headsigns.sort(system.cmp[string])
@@ -228,80 +235,80 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
-  let
-    stock = parseJson(rawStock)
-    stockSymbol = stock["query"]["results"]["quote"]["symbol"].getStr
-    stockPrice = parseFloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].getStr)
-  var
-    stockString = stockSymbol & ":" & formatFloat(stockPrice, precision = 2, format = ffDecimal)
+# recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
+#   let
+#     stock = parseJson(rawStock)
+#     stockSymbol = stock["query"]["results"]["quote"]["symbol"].getStr
+#     stockPrice = parseFloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].getStr)
+#   var
+#     stockString = stockSymbol & ":" & formatFloat(stockPrice, precision = 2, format = ffDecimal)
 
-  var stockChange = try: parseFloat (stock["query"]["results"]["quote"]["Change"].getStr)
-                         except: 0.0
+#   var stockChange = try: parseFloat (stock["query"]["results"]["quote"]["Change"].getStr)
+#                          except: 0.0
 
-  if stockChange < 0:
-    stockColor = RED
-    stockString &= "|" & formatFloat(stockChange * -1, precision = 2, format = ffDecimal)
-  else:
-    stockColor = GREEN
-    stockString &= "}" & formatFloat(stockChange, precision = 2, format = ffDecimal)
+#   if stockChange < 0:
+#     stockColor = RED
+#     stockString &= "|" & formatFloat(stockChange * -1, precision = 2, format = ffDecimal)
+#   else:
+#     stockColor = GREEN
+#     stockString &= "}" & formatFloat(stockChange, precision = 2, format = ffDecimal)
 
-  echo stockString
+#   echo stockString
 
-recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
-  let ezStream = newStringStream first_in_direction
-  ezString = ""
-  for direction in ezStream.parseXml.findAll("direction"):
-    let unsortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
+# recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
+#   let ezStream = newStringStream first_in_direction
+#   ezString = ""
+#   for direction in ezStream.parseXml.findAll("direction"):
+#     let unsortedTimes = lc[parseInt(x.attr("minutes")) | (x <- direction.findAll "prediction"), int]
 
-    if unsortedTimes.len == 0: continue
-    let sortedTimes = unsortedTimes.sorted(system.cmp[int])[0..min(1, len(unsortedTimes)-1)]
+#     if unsortedTimes.len == 0: continue
+#     let sortedTimes = unsortedTimes.sorted(system.cmp[int])[0..min(1, len(unsortedTimes)-1)]
 
-    var strSortedTimes = lc[$x | (x <- sortedTimes), string]
-    if strSortedTimes.len > 0:
-      ezString &= "$dest: ${times}m" % ["dest", direction.attr("title"), "times", join(strSortedTimes, "m, ")]
+#     var strSortedTimes = lc[$x | (x <- sortedTimes), string]
+#     if strSortedTimes.len > 0:
+#       ezString &= "$dest: ${times}m" % ["dest", direction.attr("title"), "times", join(strSortedTimes, "m, ")]
 
-  if ezString != "":
-    ezString = "EZRide - " & ezString
-    echo ezString
+#   if ezString != "":
+#     ezString = "EZRide - " & ezString
+#     echo ezString
 
-  ezColor = if isPurpleDaze(): PURPLE else: BLUE
+#   ezColor = if isPurpleDaze(): PURPLE else: BLUE
 
 
-proc getTwitterStatuses(): Future[void] {.async.} =
-  var
-    consumerToken = newConsumerToken(twitterAppPubTok, twitterAppPrivTok)
-    twitterAPI = newTwitterAPI(consumerToken, twitterOAuthPubKey, twitterOAuthPrivKey)
-    oldString = ""
-  while true:
-    let resp = twitterAPI.mentionsTimeline()
-    if resp.status == "200 OK":
-      let tweet_json = parseJson(resp.body)
-      if tweet_json.len > 0:
-        let
-          tweet = "@${user}: $tweet" % ["user", tweet_json[0]["user"]["screen_name"].getStr, "tweet", tweet_json[0]["text"].getStr]
-          clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") & '"').strip(trailing=true)
+# proc getTwitterStatuses(): Future[void] {.async.} =
+#   var
+#     consumerToken = newConsumerToken(twitterAppPubTok, twitterAppPrivTok)
+#     twitterAPI = newTwitterAPI(consumerToken, twitterOAuthPubKey, twitterOAuthPrivKey)
+#     oldString = ""
+#   while true:
+#     let resp = twitterAPI.mentionsTimeline()
+#     if resp.status == "200 OK":
+#       let tweet_json = parseJson(resp.body)
+#       if tweet_json.len > 0:
+#         let
+#           tweet = "@${user}: $tweet" % ["user", tweet_json[0]["user"]["screen_name"].getStr, "tweet", tweet_json[0]["text"].getStr]
+#           clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") & '"').strip(trailing=true)
 
-        echo clean_tweet
-        if clean_tweet != oldString:
-          makePpmFromString(clean_tweet, BLUE, "sign_tweet.ppm")
-        if clean_tweet == "":
-              removeFile("sign_tweet.ppm")
+#         echo clean_tweet
+#         if clean_tweet != oldString:
+#           makePpmFromString(clean_tweet, BLUE, "sign_tweet.ppm")
+#         if clean_tweet == "":
+#               removeFile("sign_tweet.ppm")
 
-    await sleepAsync(180*1000)
+#     await sleepAsync(180*1000)
 
-discard getTwitterStatuses()
+# discard getTwitterStatuses()
 
-proc emailPurpleDaze(): Future[void] {.async.} =
-  while true:
-    let now = getLocalTime(getTime())
-    if now.hour == 17 and isPurpleDaze(now + initInterval(days=1)):
-      let msg = createMessage("Purple Daze incoming!", "Remember to wear one of your finest purple garments tomorrow.", @[purpleEmail])
-      var serv = connect(SMTPServer)
-      echo ("\n" & $msg & "\n")
-      serv.sendmail(myEmail, @[purpleEmail], $msg)
-    await sleepAsync(3600*1000)
+# proc emailPurpleDaze(): Future[void] {.async.} =
+#   while true:
+#     let now = getLocalTime(getTime())
+#     if now.hour == 17 and isPurpleDaze(now + initInterval(days=1)):
+#       let msg = createMessage("Purple Daze incoming!", "Remember to wear one of your finest purple garments tomorrow.", @[purpleEmail])
+#       var serv = connect(SMTPServer)
+#       echo ("\n" & $msg & "\n")
+#       serv.sendmail(myEmail, @[purpleEmail], $msg)
+#     await sleepAsync(3600*1000)
 
-discard emailPurpleDaze()
+# discard emailPurpleDaze()
 
 runForever()
