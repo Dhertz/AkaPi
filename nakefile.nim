@@ -18,7 +18,7 @@ task "arm-build", "Release for ARM":
     echo "Success!"
 
 task "arm-deploy", "Deploy to RaspberryPi":
-  if shell(nimExe, "c", "-d:ssl", "--cpu:arm", "--os:linux", "-o:" & ArmName, sourceName):
+  if shell(nimExe, "c", "-d:ssl", "-d:release", "--cpu:arm", "--os:linux", "-o:" & ArmName, sourceName):
     if shell("ssh", "pi@AkaPi", "sudo service AkaPiSign stop"):
       if shell("scp", ArmName, "pi@AkaPi:akamai-sign/"):
         if shell("ssh", "pi@AkaPi", "sudo service AkaPiSign start"):
