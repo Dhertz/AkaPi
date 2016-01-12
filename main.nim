@@ -192,7 +192,11 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
   first_in_direction = ""
 
-  for mode in realtime["mode"]:
+  let modes = realtime["mode"]
+  if modes == nil:
+    raise newException(IOError, "MBTA JSON is not as we expected")
+
+  for mode in modes:
     if mode["mode_name"].getStr == "Subway":
       realtimeSubway = mode
 
