@@ -284,7 +284,7 @@ recurringJob(rawFootie, footieString, FColor, "sign_footie.ppm", 360, EURO_SCORE
        if match["status"].getStr == "IN_PLAY":
          footieString &= " LIVE"
        else:
-         footieString &= " FT"
+         footieString &= " FT "
 
   if footieString != "": echo footieString
   FColor = if isPurpleDaze(): PURPLE else: BLUE
@@ -301,7 +301,7 @@ proc getTwitterStatuses(): Future[void] {.async.} =
       if tweet_json.len > 0:
         let
           tweet = "@${user}: $tweet" % ["user", tweet_json[0]["user"]["screen_name"].getStr, "tweet", tweet_json[0]["text"].getStr]
-          clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") & '"').strip(trailing=true)
+          clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") & '"').strip(trailing=true).replace("&gt;", by=">").replace("&lt;", by="<")
 
         echo clean_tweet
         if clean_tweet != oldString:
