@@ -38,6 +38,7 @@ const
       "%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true" &
       "&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
   EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
+  EURO_SCORES      = "http://api.football-data.org/v1/soccerseasons/424/fixtures"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
 
@@ -271,6 +272,22 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
 
   ezColor = if isPurpleDaze(): PURPLE else: BLUE
 
+recurringJob(rawFootie, footieString, FColor, "sign_footie.ppm", 360, EURO_SCORES):
+  let footie = parseJson(rawFootie)
+  footieString = ""
+  for match in footie["fixtures"]:
+    let
+      matchDate = parse(match["date"].getStr, "yyyy-MM-ddTHH:mm:ssZ").monthday
+      today = getGMTime(getTime()).monthday
+    if match["status"].getStr == "IN_PLAY" or match["status"].getStr == "FINISHED" and matchDate == today or matchDate == today - 1:
+       footieString &= match["homeTeamName"].getStr & " " & $match["result"]["goalsHomeTeam"].getNum & " vs " & match["awayTeamName"].getStr & " " & $match["result"]["goalsAwayTeam"].getNum
+       if match["status"].getStr == "IN_PLAY":
+         footieString &= " LIVE"
+       else:
+         footieString &= " FT"
+
+  if footieString != "": echo footieString
+  FColor = if isPurpleDaze(): PURPLE else: BLUE
 
 proc getTwitterStatuses(): Future[void] {.async.} =
   var
