@@ -135,7 +135,7 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
     let oneHour = initInterval(hours=1)
     result = "$1 and $2" % [bestTime.time.format("htt"), (bestTime.time + oneHour).format("htt")]
 
-template recurringJob(content, displayString, color, filename, waitTime: int, url, actions: stmt) {.immediate.} =
+template recurringJob(content, displayString, color, filename, waitTime: int, url, headers: string, actions: stmt) {.immediate.} =
   block:
     proc asyncJob():Future[int] {.async.} =
       var
@@ -144,7 +144,7 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
         oldString:string
 
       while true:
-        let content = try: getContent(url)
+        let content = try: getContent(url, extraHeaders = headers)
                       except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
         try:
           #Code from template
@@ -164,7 +164,7 @@ template recurringJob(content, displayString, color, filename, waitTime: int, ur
       return 1
     discard asyncJob()
 
-recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
+recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO, ""):
   let
     weather = parseJson(rawWeather)
     feelsLike = try: round(weather["currently"]["apparentTemperature"].getFNum)
@@ -188,7 +188,7 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
 
   echo weatherString
 
-recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED_LINE):
+recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED_LINE, ""):
   let realtime = parseJson(rawRealtime)
   var realtimeSubway: JsonNode
 
@@ -234,7 +234,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK):
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK, ""):
   let
     stock = parseJson(rawStock)
     stockSymbol = stock["query"]["results"]["quote"]["symbol"].getStr
@@ -254,7 +254,7 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM
 
   echo stockString
 
-recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
+recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE, ""):
   let ezStream = newStringStream first_in_direction
   ezString = ""
   for direction in ezStream.parseXml.findAll("direction"):
@@ -273,21 +273,21 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
 
   ezColor = if isPurpleDaze(): PURPLE else: BLUE
 
-recurringJob(rawFootie, footieString, FColor, "sign_footie.ppm", 360, EURO_SCORES):
+recurringJob(rawFootie, footieString, FColor, "sign_footie.ppm", 360, EURO_SCORES, "X-Auth-Token: " & footieAPIKey & "\c\L"):
   let footie = parseJson(rawFootie)
-  footieString = ""
+  footieString = "|"
   for match in footie["fixtures"]:
     let
       matchDate = parse(match["date"].getStr, "yyyy-MM-ddTHH:mm:ssZ").monthday
       today = getGMTime(getTime()).monthday
     if match["status"].getStr == "IN_PLAY" or match["status"].getStr == "FINISHED" and matchDate == today or matchDate == today - 1:
-       footieString &= match["homeTeamName"].getStr & " " & $match["result"]["goalsHomeTeam"].getNum & " vs " & match["awayTeamName"].getStr & " " & $match["result"]["goalsAwayTeam"].getNum
+       footieString &= " " & match["homeTeamName"].getStr & " " & $match["result"]["goalsHomeTeam"].getNum & " vs " & match["awayTeamName"].getStr & " " & $match["result"]["goalsAwayTeam"].getNum
        if match["status"].getStr == "IN_PLAY":
-         footieString &= " LIVE"
+         footieString &= " LIVE |"
        else:
-         footieString &= " FT "
+         footieString &= " FT |"
 
-  if footieString != "": echo footieString
+  if footieString != "|": echo footieString
   FColor = if isPurpleDaze(): PURPLE else: BLUE
 
 proc getTwitterStatuses(): Future[void] {.async.} =
