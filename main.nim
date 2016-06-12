@@ -137,7 +137,8 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
     let oneHour = initInterval(hours=1)
     result = "$1 and $2" % [bestTime.time.format("htt"), (bestTime.time + oneHour).format("htt")]
 
-template recurringJob(content, displayString, color, filename, waitTime: int, url, headers: string, actions: stmt) {.immediate.} =
+template recurringJob(content, displayString, color, filename,
+                        waitTime: int, url, headers: string, actions: stmt) {.immediate.} =
   block:
     proc asyncJob():Future[int] {.async.} =
       var
@@ -275,15 +276,18 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE, 
 
   ezColor = if isPurpleDaze(): PURPLE else: BLUE
 
-recurringJob(rawFootie, footieString, FColor, "sign_footie.ppm", 360, EURO_SCORES, "X-Auth-Token: " & footieAPIKey & "\c\L"):
+recurringJob(rawFootie, footieString, FColor, "sign_footie.ppm",
+               360, EURO_SCORES, "X-Auth-Token: " & footieAPIKey & "\c\L"):
   let footie = parseJson(rawFootie)
   footieString = "|"
   for match in footie["fixtures"]:
     let
       matchDate = parse(match["date"].getStr, "yyyy-MM-ddTHH:mm:ssZ").monthday
       today = getGMTime(getTime()).monthday
-    if match["status"].getStr == "IN_PLAY" or match["status"].getStr == "FINISHED" and matchDate == today or matchDate == today - 1:
-       footieString &= " " & match["homeTeamName"].getStr & " " & $match["result"]["goalsHomeTeam"].getNum & " vs " & match["awayTeamName"].getStr & " " & $match["result"]["goalsAwayTeam"].getNum
+    if (match["status"].getStr == "IN_PLAY" or match["status"].getStr == "FINISHED" and
+          matchDate == today or matchDate == today - 1):
+       footieString &= " " & match["homeTeamName"].getStr & " " & $match["result"]["goalsHomeTeam"].getNum &
+                         " vs " & match["awayTeamName"].getStr & " " & $match["result"]["goalsAwayTeam"].getNum
        if match["status"].getStr == "IN_PLAY":
          footieString &= " LIVE |"
        else:
@@ -304,7 +308,8 @@ proc getTwitterStatuses(): Future[void] {.async.} =
       if tweet_json.len > 0:
         let
           tweet = "@${user}: $tweet" % ["user", tweet_json[0]["user"]["screen_name"].getStr, "tweet", tweet_json[0]["text"].getStr]
-          clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") & '"').strip(trailing=true).replace("&gt;", by=">").replace("&lt;", by="<")
+          clean_tweet = execProcess("/home/pi/TwitFilter/TwitFilter \"" & tweet.replace("’", by="\'") &
+                         '"').strip(trailing=true).replace("&gt;", by=">").replace("&lt;", by="<")
 
         echo clean_tweet
         if clean_tweet != oldString:
@@ -318,11 +323,14 @@ discard getTwitterStatuses()
 
 proc textNumber(number:string, message:string) =
   let encodedBody = "To=" & encodeUrl(number) & "&MessagingServiceSid=" & twilioMSid & "&Body=" & encodeUrl(message)
-  discard postContent(TWILIO_MESSAGES, extraHeaders="Content-Type: application/x-www-form-urlencoded\c\LAuthorization: Basic " & twilioAuth & "\c\L", body=encodedBody)
+  discard postContent(TWILIO_MESSAGES,
+                        extraHeaders="Content-Type: application/x-www-form-urlencoded\c\L" &
+                        "Authorization: Basic " & twilioAuth & "\c\L", body=encodedBody)
 
 proc manageSubscribers(): seq[string] =
   let
-    rawMessages = getContent(TWILIO_MESSAGES & "?To=" & encodeUrl(twilioUSNumber), extraHeaders="Authorization: Basic " & twilioAuth & "\c\L")
+    rawMessages = getContent(TWILIO_MESSAGES & "?To=" & encodeUrl(twilioUSNumber),
+                               extraHeaders="Authorization: Basic " & twilioAuth & "\c\L")
     messages = parseJson(rawMessages)
   withFile(subsRead, "subscribers.txt", fmRead):
   #fmReadWrite seems broken
@@ -343,19 +351,24 @@ proc manageSubscribers(): seq[string] =
           if not currentSubscribers.contains(fromNum):
             currentSubscribers.incl(fromNum)
             echo "subscribing " & fromNum
-            responseText = "Thanks for subscribing to Puple Daze text updates. I'll be sure to let you know when to dress up! 💃"
+            responseText = "Thanks for subscribing to Puple Daze text updates." &
+                              " I'll be sure to let you know when to dress up! 💃"
           else:
-            responseText = "Woah there eager beaver, looks like you are already on the VIP list! I'll make sure you get special treatment though"
+            responseText = "Woah there eager beaver, looks like you are already on" &
+                              " the VIP list! I'll make sure you get special treatment though"
         of "stop", "unsubscribe", "no":
           if currentSubscribers.contains(fromNum):
             currentSubscribers.excl(fromNum)
             echo "unsubscribing " & fromNum
-            responseText = "Oh no!, I am sorry to see you go, but I will no longer remind you to encounter the Purple Daze 😔"
+            responseText = "Oh no!, I am sorry to see you go, but I will no " &
+                              "longer remind you to encounter the Purple Daze 😔"
           else:
-            responseText = "Don't worry, you weren't even included yet. I'm not hurt, I didn't like the look of your phone number anyway"
+            responseText = "Don't worry, you weren't even included yet." &
+                              " I'm not hurt, I didn't like the look of your phone number anyway"
         else:
           echo "weird message: " & fromNum & message["body"].getStr
-          responseText = "Hmm. Not quite sure I know what you mean! 🤔 Respond with start to subscribe to notifications of Purple Daze or stop to unsubscribe."
+          responseText = "Hmm. Not quite sure I know what you mean! 🤔  Respond with start" &
+                            " to subscribe to notifications of Purple Daze or stop to unsubscribe."
       messagesToSend[fromNum] = responseText
 
     let currentSubscribersArr = lc[ x | (x <- currentSubscribers.items), string]
