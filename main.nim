@@ -7,6 +7,7 @@ include secrets
 
 import algorithm
 import asyncdispatch
+import cgi
 import colors
 import future
 import graphics
@@ -321,8 +322,18 @@ proc emailPurpleDaze(): Future[void] {.async.} =
       var serv = connect(SMTPServer)
       echo ("\n" & $msg & "\n")
       serv.sendmail(myEmail, @[purpleEmail], $msg)
+#    if now.hour == 7 and isPurpleDaze(now):
     await sleepAsync(3600*1000)
 
 discard emailPurpleDaze()
+
+var numbers = @[myNumber]
+for number in numbers:
+  echo number
+  let encodedMessage = "To=" & encodeUrl(number) & "&MessagingServiceSid=" & twilioMSid & "&Body=" & encodeUrl("Remember it is PurpleDaze today!")
+  echo encodedMessage
+#  echo postContent("https://api.twilio.com/2010-04-01/Accounts/" & twilioAccount & "/Messages.json", extraHeaders="Authorization: Basic " & twilioAuth & "\c\L", body=encodedMessage)
+
+echo getContent("https://api.twilio.com/2010-04-01/Accounts/" & twilioAccount & "/Messages.json?To=" & encodeUrl(twilioUKNumber), extraHeaders="Authorization: Basic " & twilioAuth & "\c\L")
 
 runForever()
