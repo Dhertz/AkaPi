@@ -77,6 +77,20 @@ const
   purpleEmail         = "recipient@example.com"
   myEmail             = "sender@example.com"
   SMTPServer          = "smtp.example.com"
+  twitterAppPubTok    = "xxxxxxxxxxxxxxxxxxxxx"
+  twitterAppPrivTok   = "xxxxxxxxxxxxxxxxxxxxx"
+  twitterOAuthPubKey  = "xxxxxxxxxxxxxxxxxxxxx"
+  twitterOAuthPrivKey = "xxxxxxxxxxxxxxxxxxxxx"
+  footieAPIKey        = "xxxxxxxxxxxxxxxxxxxxx"
+  twilioSID           = "xxxxxxxxxxxxxxxxxxxxx"
+  twilioSecret        = "xxxxxxxxxxxxxxxxxxxxx"
+  twilioAuthString    = twilioSID & ":" & twilioSecret
+  twilioAuth          = encode(twilioAuthString, lineLen=1024)
+  twilioMSid          = "xxxxxxxxxxxxxxxxxxxxx"
+  twilioAccount       = "xxxxxxxxxxxxxxxxxxxxx"
+  twilioUKNumber      = "+440000000000"
+  twilioUSNumber      = "+10000000000"
+
 ```
 
 You will then need to download and install [nim][3] (the compiler) and [nimble][] (the package manager) to get the required dependencies and install your platform's SDL1 developement package.
@@ -96,8 +110,9 @@ Current information displayed
 -   Weather for the next few hours and when to leave for lunch/home
     based on chance of precipitation.
 -   Purple dayz
--   Email reminders the day before purple dayz
+-   Email and SMS reminders the day before purple dayz
 -   Twitter replies to the [@AkamaiPi] account
+-   Euro 2016 scores from yesterday's and today's live/FT matches
 
 Animations
 ----------
