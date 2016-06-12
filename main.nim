@@ -16,6 +16,7 @@ import json
 import math
 import os
 import osproc
+import sets
 import smtp
 import streams
 import strutils
@@ -42,6 +43,7 @@ const
   EURO_SCORES      = "http://api.football-data.org/v1/soccerseasons/424/fixtures"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
+  TWILIO_MESSAGES  = "https://api.twilio.com/2010-04-01/Accounts/" & twilioAccount & "/Messages.json"
 
 let AKAPI_LOGO:PSurface = loadAkaPiLogo()
 
@@ -314,26 +316,77 @@ proc getTwitterStatuses(): Future[void] {.async.} =
 
 discard getTwitterStatuses()
 
+proc textNumber(number:string, message:string) =
+  let encodedBody = "To=" & encodeUrl(number) & "&MessagingServiceSid=" & twilioMSid & "&Body=" & encodeUrl(message)
+  discard postContent(TWILIO_MESSAGES, extraHeaders="Content-Type: application/x-www-form-urlencoded\c\LAuthorization: Basic " & twilioAuth & "\c\L", body=encodedBody)
+
+proc manageSubscribers(): seq[string] =
+  let
+    rawMessages = getContent(TWILIO_MESSAGES & "?To=" & encodeUrl(twilioUSNumber), extraHeaders="Authorization: Basic " & twilioAuth & "\c\L")
+    messages = parseJson(rawMessages)
+  withFile(subsRead, "subscribers.txt", fmRead):
+  #fmReadWrite seems broken
+    var
+      currentSubscribers = toSet(readLine(subsRead).split(","))
+      lastSeenMessageId = readline(subsRead)
+      messagesToSend = initTable[string, string]()
+    echo "Subscribed to purple daze texts: " & $currentSubscribers
+    echo "Last seen text id: " & lastSeenMessageId
+
+    for message in messages["messages"]:
+      if message["sid"].getStr == lastSeenMessageId: break
+      var
+        responseText = ""
+        fromNum = message["from"].getStr
+      case message["body"].getStr.toLower:
+        of "subscribe", "start":
+          if not currentSubscribers.contains(fromNum):
+            currentSubscribers.incl(fromNum)
+            echo "subscribing " & fromNum
+            responseText = "Thanks for subscribing to Puple Daze text updates. I'll be sure to let you know when to dress up! 💃"
+          else:
+            responseText = "Woah there eager beaver, looks like you are already on the VIP list! I'll make sure you get special treatment though"
+        of "stop", "unsubscribe", "no":
+          if currentSubscribers.contains(fromNum):
+            currentSubscribers.excl(fromNum)
+            echo "unsubscribing " & fromNum
+            responseText = "Oh no!, I am sorry to see you go, but I will no longer remind you to encounter the Purple Daze 😔"
+          else:
+            responseText = "Don't worry, you weren't even included yet. I'm not hurt, I didn't like the look of your phone number anyway"
+        else:
+          echo "weird message: " & fromNum & message["body"].getStr
+          responseText = "Hmm. Not quite sure I know what you mean! 🤔 Respond with start to subscribe to notifications of Purple Daze or stop to unsubscribe."
+      messagesToSend[fromNum] = responseText
+
+    let currentSubscribersArr = lc[ x | (x <- currentSubscribers.items), string]
+    lastSeenMessageId = messages["messages"][0]["sid"].getStr
+
+    withFile(subsWrite, "subscribers.txt", fmWrite):
+      writeLine(subsWrite, currentSubscribersArr.join(","))
+      writeLine(subsWrite, lastSeenMessageId)
+
+    for number, message in messagesToSend:
+      textNumber(number, message)
+
+    return currentSubscribersArr
+
 proc emailPurpleDaze(): Future[void] {.async.} =
   while true:
-    let now = getLocalTime(getTime())
+    let
+      subscribers = manageSubscribers()
+      now = getLocalTime(getTime())
     if now.hour == 17 and isPurpleDaze(now + initInterval(days=1)):
       let msg = createMessage("Purple Daze incoming!", "Remember to wear one of your finest purple garments tomorrow.", @[purpleEmail])
       var serv = connect(SMTPServer)
       echo ("\n" & $msg & "\n")
       serv.sendmail(myEmail, @[purpleEmail], $msg)
-#    if now.hour == 7 and isPurpleDaze(now):
+    if now.hour == 7 and isPurpleDaze(now):
+      for number in subscribers:
+        echo "Sending purple daze remider to " & number
+        textNumber(number, "Remember it is Purple Daze today!")
     await sleepAsync(3600*1000)
 
 discard emailPurpleDaze()
 
-var numbers = @[myNumber]
-for number in numbers:
-  echo number
-  let encodedMessage = "To=" & encodeUrl(number) & "&MessagingServiceSid=" & twilioMSid & "&Body=" & encodeUrl("Remember it is PurpleDaze today!")
-  echo encodedMessage
-#  echo postContent("https://api.twilio.com/2010-04-01/Accounts/" & twilioAccount & "/Messages.json", extraHeaders="Authorization: Basic " & twilioAuth & "\c\L", body=encodedMessage)
-
-echo getContent("https://api.twilio.com/2010-04-01/Accounts/" & twilioAccount & "/Messages.json?To=" & encodeUrl(twilioUKNumber), extraHeaders="Authorization: Basic " & twilioAuth & "\c\L")
 
 runForever()
