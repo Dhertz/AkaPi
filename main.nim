@@ -147,7 +147,7 @@ template recurringJob(content, displayString, color, filename,
         oldString:string
 
       while true:
-        let content = try: getContent(url, extraHeaders = headers)
+        let content = try: getContent(url, extraHeaders = headers, timeout=4000)
                       except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
         try:
           #Code from template
@@ -330,7 +330,7 @@ proc textNumber(number:string, message:string) =
 proc manageSubscribers(): seq[string] =
   let
     rawMessages = getContent(TWILIO_MESSAGES & "?To=" & encodeUrl(twilioUSNumber),
-                               extraHeaders="Authorization: Basic " & twilioAuth & "\c\L")
+                               extraHeaders="Authorization: Basic " & twilioAuth & "\c\L", timeout=4000)
     messages = parseJson(rawMessages)
   withFile(subsRead, "subscribers.txt", fmRead):
   #fmReadWrite seems broken
