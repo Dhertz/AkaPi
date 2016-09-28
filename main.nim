@@ -19,10 +19,11 @@ import osproc
 import sets
 import smtp
 import streams
-import strutils
+import strutils except toLower
 import tables
 import twitter
 import times
+import unicode
 import xmlparser
 import xmltree
 
@@ -36,11 +37,10 @@ const
   FORECAST_IO      = "https://api.forecast.io/forecast/$KEY/42.364452,-71.089179?units=si" % ["KEY", FORECAST_IO_KEY]
   MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?" &
       "api_key=$KEY&stop=place-knncl&format=json" % ["KEY", MBTA_KEY]
-  YAHOO_AKAM_STOCK = "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from" &
+  YAHOO_AKAM_STOCK = "http://query.yahooapis.com/v1/public/yql?q=select%20*%20from" &
       "%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true" &
       "&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
   EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
-  EURO_SCORES      = "http://api.football-data.org/v1/soccerseasons/424/fixtures"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
   TWILIO_MESSAGES  = "https://api.twilio.com/2010-04-01/Accounts/" & twilioAccount & "/Messages.json"
@@ -55,17 +55,16 @@ proc isPurpleDaze(now = getLocalTime(getTime())):bool =
     isPurpleFri = now.weekday == dFri and (now.monthday < 6 or now.monthday > 12)
   isPurpleWed or isPurpleThu or isPurpleFri
 
-template withFile(f: expr, filename: string, mode: FileMode, body: stmt): stmt {.immediate.} =
-  let fn = filename
+template withFile(f, filename, mode, body: untyped): untyped =
   var f: File
-  if open(f, fn, mode):
+  if open(f, filename, mode):
     defer: close(f)
     body
   else:
-    raise newException(IOError, "cannot open: " & fn)
+    raise newException(IOError, "cannot open: " & filename)
 
-proc loadAkaPiLogo(): PSurface =
-  withFile(AkaPiLogo, AKAPI_LOGO_FILE, fmRead):
+proc loadPPM(filename: string): PSurface =
+  withFile(AkaPiLogo, filename, fmRead):
     if AkaPiLogo.readLine() != "P6":
       raise newException(IOError, "Invalid file format")
 
@@ -91,6 +90,9 @@ proc loadAkaPiLogo(): PSurface =
         inc pos
 
       read = AkaPiLogo.readBytes(arr, 0, 255)
+
+proc loadAkaPiLogo(): PSurface =
+  loadPPM(AKAPI_LOGO_FILE)
 
 proc writePPM(surface: PSurface, f: File) =
   f.writeLine "P6\n", surface.w, " ", surface.h, "\n255"
@@ -138,17 +140,22 @@ proc whenToLeave(begin, finish: int, weather: JsonNode): string =
     result = "$1 and $2" % [bestTime.time.format("htt"), (bestTime.time + oneHour).format("htt")]
 
 template recurringJob(content, displayString, color, filename,
-                        waitTime: int, url, headers: string, actions: stmt) {.immediate.} =
+                        waitTime, url, actions: untyped) =
   block:
-    proc asyncJob():Future[int] {.async.} =
+    proc asyncJob() {.async.} =
       var
         displayString:string
         color:Color
         oldString:string
 
       while true:
-        let content = try: getContent(url, extraHeaders = headers, timeout=4000)
-                      except: "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
+        var content = ""
+        try:
+          let client = newHttpClient()
+          content = client.getContent(url)
+        except:
+          content = "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
+
         try:
           #Code from template
           actions
@@ -164,13 +171,12 @@ template recurringJob(content, displayString, color, filename,
           removeFile(filename)
 
         await sleepAsync(waitTime*1000)
-      return 1
     discard asyncJob()
 
-recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO, ""):
+recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, FORECAST_IO):
   let
     weather = parseJson(rawWeather)
-    feelsLike = try: round(weather["currently"]["apparentTemperature"].getFNum)
+    feelsLike = try: int round(weather["currently"]["apparentTemperature"].getFNum)
                 except: int weather["currently"]["apparentTemperature"].getNum
 
   weatherString = weather["hourly"]["summary"].getStr & " Feels like " & $feelsLike & "C"
@@ -191,7 +197,7 @@ recurringJob(rawWeather, weatherString, weatherColor, "sign_weather.ppm", 600, F
 
   echo weatherString
 
-recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED_LINE, ""):
+recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED_LINE):
   let realtime = parseJson(rawRealtime)
   var realtimeSubway: JsonNode
 
@@ -223,6 +229,7 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
         else:
            var dest_times = seen_headsigns[trip["trip_headsign"].getStr]
            dest_times.add(secAway)
+           seen_headsigns[trip["trip_headsign"].getStr] = dest_times
 
   var headsigns = lc[x | (x <- seen_headsigns.keys), string]
   headsigns.sort(system.cmp[string])
@@ -230,14 +237,14 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
   for headsign in headsigns:
     var sortedTimes = seen_headsigns[headsign][0..min(1, len(seen_headsigns[headsign])-1)]
     sortedTimes.sort(system.cmp[int])
-    let headsignMinutes = lc[($round(x/60)) | (x <- sortedTimes), string]
+    let headsignMinutes = lc[($(int round(x/60))) | (x <- sortedTimes), string]
     first_in_direction &=  "$dest ${times}m { " % ["dest", headsign, "times", join(headsignMinutes, "m, ")]
 
   TColor = if isPurpleDaze(): PURPLE else: RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM_STOCK, ""):
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 30, YAHOO_AKAM_STOCK):
   let
     stock = parseJson(rawStock)
     stockSymbol = stock["query"]["results"]["quote"]["symbol"].getStr
@@ -245,7 +252,7 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM
   var
     stockString = stockSymbol & ":" & formatFloat(stockPrice, precision = 2, format = ffDecimal)
 
-  var stockChange = try: parseFloat (stock["query"]["results"]["quote"]["Change"].getStr)
+  var stockChange = try: parseFloat(stock["query"]["results"]["quote"]["Change"].getStr)
                          except: 0.0
 
   if stockChange < 0:
@@ -257,7 +264,7 @@ recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 20, YAHOO_AKAM
 
   echo stockString
 
-recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE, ""):
+recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE):
   let ezStream = newStringStream first_in_direction
   ezString = ""
   for direction in ezStream.parseXml.findAll("direction"):
@@ -276,27 +283,7 @@ recurringJob(first_in_direction, ezString, ezColor, "sign_ez.ppm", 60, EZ_RIDE, 
 
   ezColor = if isPurpleDaze(): PURPLE else: BLUE
 
-recurringJob(rawFootie, footieString, FColor, "sign_footie.ppm",
-               360, EURO_SCORES, "X-Auth-Token: " & footieAPIKey & "\c\L"):
-  let footie = parseJson(rawFootie)
-  footieString = "|"
-  for match in footie["fixtures"]:
-    let
-      matchDate = parse(match["date"].getStr, "yyyy-MM-ddTHH:mm:ssZ").monthday
-      today = getGMTime(getTime()).monthday
-    if (match["status"].getStr == "IN_PLAY" or match["status"].getStr == "FINISHED" and
-          matchDate == today or matchDate == today - 1):
-       footieString &= " " & match["homeTeamName"].getStr & " " & $match["result"]["goalsHomeTeam"].getNum &
-                         " vs " & match["awayTeamName"].getStr & " " & $match["result"]["goalsAwayTeam"].getNum
-       if match["status"].getStr == "IN_PLAY":
-         footieString &= " LIVE |"
-       else:
-         footieString &= " FT |"
-
-  if footieString != "|": echo footieString
-  FColor = if isPurpleDaze(): PURPLE else: BLUE
-
-proc getTwitterStatuses(): Future[void] {.async.} =
+proc getTwitterStatuses() {.async.} =
   var
     consumerToken = newConsumerToken(twitterAppPubTok, twitterAppPrivTok)
     twitterAPI = newTwitterAPI(consumerToken, twitterOAuthPubKey, twitterOAuthPrivKey)
@@ -312,8 +299,10 @@ proc getTwitterStatuses(): Future[void] {.async.} =
                          '"').strip(trailing=true).replace("&gt;", by=">").replace("&lt;", by="<")
 
         echo clean_tweet
+        let colour = if isPurpleDaze(): PURPLE else: BLUE
         if clean_tweet != oldString:
-          makePpmFromString(clean_tweet, BLUE, "sign_tweet.ppm")
+          oldString = clean_tweet
+          makePpmFromString(clean_tweet, colour, "sign_tweet.ppm")
         if clean_tweet == "":
               removeFile("sign_tweet.ppm")
 
@@ -321,22 +310,24 @@ proc getTwitterStatuses(): Future[void] {.async.} =
 
 discard getTwitterStatuses()
 
-proc textNumber(number:string, message:string) =
+proc textNumber(client: HttpClient, number:string, message:string) =
   let encodedBody = "To=" & encodeUrl(number) & "&MessagingServiceSid=" & twilioMSid & "&Body=" & encodeUrl(message)
-  discard postContent(TWILIO_MESSAGES,
-                        extraHeaders="Content-Type: application/x-www-form-urlencoded\c\L" &
-                        "Authorization: Basic " & twilioAuth & "\c\L", body=encodedBody)
+  discard client.postContent(TWILIO_MESSAGES, body=encodedBody)
+
+proc newTwilioHttpClient(): HttpClient =
+  let client = newHttpClient(timeout=4000)
+  client.headers.add("Authorization", "Basic " & twilioAuth & "\c\L")
+  return client
 
 proc manageSubscribers(): seq[string] =
   let
-    rawMessages = getContent(TWILIO_MESSAGES & "?To=" & encodeUrl(twilioUSNumber),
-                               extraHeaders="Authorization: Basic " & twilioAuth & "\c\L", timeout=4000)
+    client = newTwilioHttpClient()
+    rawMessages = client.getContent(TWILIO_MESSAGES & "?To=" & encodeUrl(twilioUSNumber))
     messages = parseJson(rawMessages)
-  withFile(subsRead, "subscribers.txt", fmRead):
-  #fmReadWrite seems broken
+  withFile(subs, "subscribers.txt", fmReadWrite):
     var
-      currentSubscribers = toSet(readLine(subsRead).split(","))
-      lastSeenMessageId = readline(subsRead)
+      currentSubscribers = toSet(readLine(subs).split(","))
+      lastSeenMessageId = readline(subs)
       messagesToSend = initTable[string, string]()
     echo "Subscribed to purple daze texts: " & $currentSubscribers
     echo "Last seen text id: " & lastSeenMessageId
@@ -374,29 +365,28 @@ proc manageSubscribers(): seq[string] =
     let currentSubscribersArr = lc[ x | (x <- currentSubscribers.items), string]
     lastSeenMessageId = messages["messages"][0]["sid"].getStr
 
-    withFile(subsWrite, "subscribers.txt", fmWrite):
-      writeLine(subsWrite, currentSubscribersArr.join(","))
-      writeLine(subsWrite, lastSeenMessageId)
+    writeLine(subs, currentSubscribersArr.join(","))
+    writeLine(subs, lastSeenMessageId)
 
     for number, message in messagesToSend:
-      textNumber(number, message)
+      textNumber(client, number, message)
 
     return currentSubscribersArr
 
-proc emailPurpleDaze(): Future[void] {.async.} =
+proc emailPurpleDaze() {.async.} =
   while true:
     let
       subscribers = manageSubscribers()
       now = getLocalTime(getTime())
     if now.hour == 17 and isPurpleDaze(now + initInterval(days=1)):
-      let msg = createMessage("Purple Daze incoming!", "Remember to wear one of your finest purple garments tomorrow.", @[purpleEmail])
+      let msg = createMessage("Purple Daze incoming!", "Remember to wear one of your finest purple garments tomorrow.\n Do you need an extra reminder tomorrow morning? I can send you an SMS! Sign up by texting START to (617) 702-4522", @[purpleEmail])
       var serv = connect(SMTPServer)
-      echo ("\n" & $msg & "\n")
+      echo("\n" & $msg & "\n")
       serv.sendmail(myEmail, @[purpleEmail], $msg)
     if now.hour == 7 and isPurpleDaze(now):
       for number in subscribers:
         echo "Sending purple daze remider to " & number
-        textNumber(number, "Remember it is Purple Daze today!")
+        textNumber(newTwilioHttpClient(), number, "Remember it is Purple Daze today!")
     await sleepAsync(3600*1000)
 
 discard emailPurpleDaze()
