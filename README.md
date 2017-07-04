@@ -161,6 +161,7 @@ To Do
         the sign if they are the same
 -   Make prettier (output and code)
 -   Make weather more concise
+
   [@AkamaiPi]: https://twitter.com/akamaipi
   [1]: https://github.com/Dhertz/AkaPi/tree/master/animations
   [2]: http://ledseq.com/forums/topic/nyan-cat/
