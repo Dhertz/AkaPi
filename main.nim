@@ -26,6 +26,7 @@ import times
 import unicode
 import xmlparser
 import xmltree
+import zip/zlib
 
 proc loadAkaPiLogo(): PSurface
 
@@ -37,9 +38,7 @@ const
   FORECAST_IO      = "https://api.forecast.io/forecast/$KEY/42.364452,-71.089179?units=si" % ["KEY", FORECAST_IO_KEY]
   MBTA_RED_LINE    = "http://realtime.mbta.com/developer/api/v2/predictionsbystop?" &
       "api_key=$KEY&stop=place-knncl&format=json" % ["KEY", MBTA_KEY]
-  YAHOO_AKAM_STOCK = "http://query.yahooapis.com/v1/public/yql?q=select%20*%20from" &
-      "%20yahoo.finance.quote%20where%20symbol%20%3D%20'AKAM'&format=json&diagnostics=true" &
-      "&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
+  GOOG_AKAM_STOCK  = "https://www.google.com/async/finance_price_updates?async=lang:en,country:us,rmids:%2Fm%2F07zlcdr"
   EZ_RIDE          = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictions&a=charles-river&stopId=08"
   AKAPI_LOGO_FILE  = "AkaPi_logo.ppm"
   FONT_FILE        = "MBTA.ttf"
@@ -150,11 +149,13 @@ template recurringJob(content, displayString, color, filename,
 
       while true:
         var content = ""
+        let client = newHttpClient()
         try:
-          let client = newHttpClient()
           content = client.getContent(url)
         except:
-          content = "Failed to retrieve URL:\n\t" & getCurrentExceptionMsg()
+          content = "Failed to retrieve URL: " & url & "\n\t" & getCurrentExceptionMsg()
+
+        client.close()
 
         try:
           #Code from template
@@ -244,23 +245,26 @@ recurringJob(rawRealtime, first_in_direction, TColor, "sign_T.ppm", 60, MBTA_RED
 
   echo first_in_direction
 
-recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 30, YAHOO_AKAM_STOCK):
+recurringJob(rawStock, stockString, stockColor, "sign_stock.ppm", 180, GOOG_AKAM_STOCK):
+  var trimmedStock = rawStock
+  if rawStock.startsWith(")]}'"):
+    trimmedStock = rawStock.subStr(4)
   let
-    stock = parseJson(rawStock)
-    stockSymbol = stock["query"]["results"]["quote"]["symbol"].getStr
-    stockPrice = parseFloat(stock["query"]["results"]["quote"]["LastTradePriceOnly"].getStr)
+    stock = parseJson(trimmedStock)
+    priceUpdate = stock["PriceUpdates"]["price_update"][0]
+    stockSymbol = priceUpdate["symbol"].getStr
+    stockPrice = priceUpdate["price"]["formatted_price"]["formatted_value"].getStr
+    stockChangeVal = priceUpdate["price"]["formatted_price_change"]["formatted_value"].getStr
+    stockChangePos = priceUpdate["price"]["is_price_change_non_negative"].getBVal
   var
-    stockString = stockSymbol & ":" & formatFloat(stockPrice, precision = 2, format = ffDecimal)
+    stockString = stockSymbol & ":" & stockPrice
 
-  var stockChange = try: parseFloat(stock["query"]["results"]["quote"]["Change"].getStr)
-                         except: 0.0
-
-  if stockChange < 0:
-    stockColor = RED
-    stockString &= "|" & formatFloat(stockChange * -1, precision = 2, format = ffDecimal)
-  else:
+  if stockChangePos:
     stockColor = GREEN
-    stockString &= "}" & formatFloat(stockChange, precision = 2, format = ffDecimal)
+    stockString &= "}" & stockChangeVal
+  else:
+    stockColor = RED
+    stockString &= "|" & stockChangeVal
 
   echo stockString
 
